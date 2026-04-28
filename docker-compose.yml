@@ -40,9 +40,7 @@ services:
     restart: unless-stopped
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/gwydeonwow/rsi-backend:latest
     environment:
       APP_ENV: ${APP_ENV:-production}
       DEBUG: ${DEBUG:-false}
@@ -86,9 +84,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/gwydeonwow/rsi-frontend:latest
     depends_on:
       backend:
         condition: service_healthy
