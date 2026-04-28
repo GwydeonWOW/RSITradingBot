@@ -1,0 +1,118 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rsi_trading}
+      POSTGRES_USER: ${POSTGRES_USER:-rsi_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rsi_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rsi_user} -d ${POSTGRES_DB:-rsi_trading}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-market_data}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rsi_user}:${POSTGRES_PASSWORD:-rsi_password}@postgres:5432/${POSTGRES_DB:-rsi_trading}
+      REDIS_URL: redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-market_data}
+      HYPERLIQUID_WS_URL: ${HYPERLIQUID_WS_URL:-wss://api.hyperliquid.xyz/ws}
+      HYPERLIQUID_API_URL: ${HYPERLIQUID_API_URL:-https://api.hyperliquid.xyz}
+      HYPERLIQUID_PRIVATE_KEY: ${HYPERLIQUID_PRIVATE_KEY:-}
+      HYPERLIQUID_ACCOUNT_ADDRESS: ${HYPERLIQUID_ACCOUNT_ADDRESS:-}
+      HYPERLIQUID_NETWORK: ${HYPERLIQUID_NETWORK:-mainnet}
+      RSI_PERIOD: ${RSI_PERIOD:-14}
+      RSI_REGIME_BULLISH_THRESHOLD: ${RSI_REGIME_BULLISH_THRESHOLD:-55}
+      RSI_REGIME_BEARISH_THRESHOLD: ${RSI_REGIME_BEARISH_THRESHOLD:-45}
+      RISK_PER_TRADE_MIN: ${RISK_PER_TRADE_MIN:-0.0025}
+      RISK_PER_TRADE_MAX: ${RISK_PER_TRADE_MAX:-0.0075}
+      MAX_LEVERAGE: ${MAX_LEVERAGE:-3}
+      MAX_TOTAL_EXPOSURE_PCT: ${MAX_TOTAL_EXPOSURE_PCT:-0.30}
+      UNIVERSE: ${UNIVERSE:-BTC,ETH,SOL}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      ZAI_API_URL: ${ZAI_API_URL:-https://api.z.ai/v1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  backend_data:
