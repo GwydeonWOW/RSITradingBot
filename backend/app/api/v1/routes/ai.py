@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+
+from app.core.auth import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -29,7 +32,10 @@ class ExceptionClassifyResponse(BaseModel):
 
 
 @router.post("/exceptions/classify")
-async def classify_exception(request: ExceptionClassifyRequest) -> ExceptionClassifyResponse:
+async def classify_exception(
+    request: ExceptionClassifyRequest,
+    current_user: User = Depends(get_current_user),
+) -> ExceptionClassifyResponse:
     """Classify a market exception using the AI model.
 
     Sends market context and signal data to the z.ai API for

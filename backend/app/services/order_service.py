@@ -7,6 +7,7 @@ coordination between the OMS, signer, and reconciliation.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 from app.execution.oms import (
@@ -23,9 +24,10 @@ class OrderService:
     """High-level order management facade.
 
     Coordinates order creation, signing, submission, and tracking.
+    All operations are scoped to a specific user.
 
     Usage:
-        service = OrderService(signer=signer)
+        service = OrderService(user_id=user_id, signer=signer)
         order = service.create_and_submit(
             symbol="BTC", side="buy", size=0.01,
             order_type="market"
@@ -34,8 +36,10 @@ class OrderService:
 
     def __init__(
         self,
+        user_id: uuid.UUID,
         signer: Optional[HyperliquidSigner] = None,
     ) -> None:
+        self._user_id = user_id
         self._oms = OrderManagementSystem()
         self._signer = signer
 

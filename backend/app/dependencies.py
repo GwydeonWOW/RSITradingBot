@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Generator
+from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import settings
+
+# Async engine and session factory
+engine = create_async_engine(settings.database_url, echo=settings.debug)
+async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
 def get_settings():
     """Provide application settings as a dependency."""
-    return settings
+    from app.config import settings as _settings
+    return _settings
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Provide an async database session per request."""
+    async with async_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

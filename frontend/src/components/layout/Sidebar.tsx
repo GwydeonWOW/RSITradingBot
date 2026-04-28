@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import clsx from "clsx";
+import { useAuthStore } from "@/store/useAuthStore";
 
 const NAV_ITEMS = [
   {
@@ -60,6 +61,9 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-16 lg:w-56 bg-gray-900 border-r border-gray-800 flex flex-col">
       <div className="flex items-center justify-center lg:justify-start h-16 px-4 border-b border-gray-800">
@@ -91,10 +95,32 @@ export function Sidebar() {
       </nav>
 
       <div className="px-2 py-4 border-t border-gray-800">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-2 h-2 rounded-full bg-profit animate-pulse" />
-          <span className="hidden lg:inline text-xs text-gray-500">System Online</span>
-        </div>
+        {user ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 px-3 py-1">
+              <div className="w-6 h-6 rounded-full bg-neutral-accent/20 text-neutral-accent flex items-center justify-center text-xs font-bold">
+                {user.email.charAt(0).toUpperCase()}
+              </div>
+              <span className="hidden lg:inline text-xs text-gray-400 truncate max-w-[140px]">
+                {user.email}
+              </span>
+            </div>
+            <button
+              onClick={logout}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-loss hover:bg-gray-800/50 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+              </svg>
+              <span className="hidden lg:inline">Logout</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-3 py-2">
+            <div className="w-2 h-2 rounded-full bg-profit animate-pulse" />
+            <span className="hidden lg:inline text-xs text-gray-500">System Online</span>
+          </div>
+        )}
       </div>
     </aside>
   );

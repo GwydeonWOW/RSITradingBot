@@ -39,6 +39,6 @@ class LedgerEntry(Base):
 
     symbol: Mapped[str] = mapped_column(String(20), nullable=True)
     description: Mapped[str] = mapped_column(String(500), nullable=True)
-    metadata: Mapped[dict] = mapped_column(JSON, nullable=True)
+    entry_metadata: Mapped[dict] = mapped_column("metadata", JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

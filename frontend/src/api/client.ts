@@ -1,5 +1,9 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
+function getToken(): string | null {
+  return localStorage.getItem("token");
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -10,7 +14,18 @@ async function request<T>(
     ...((options.headers as Record<string, string>) ?? {}),
   };
 
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(url, { ...options, headers });
+
+  if (response.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    throw new ApiError(401, "Session expired. Please log in again.");
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -46,4 +61,8 @@ export function put<T>(path: string, body?: unknown): Promise<T> {
     method: "PUT",
     body: body ? JSON.stringify(body) : undefined,
   });
+}
+
+export function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
 }

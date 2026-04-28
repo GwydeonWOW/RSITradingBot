@@ -1,3 +1,40 @@
+// ─── Auth & Wallet types ─────────────────────────────────
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface Wallet {
+  id: string;
+  label: string;
+  master_address: string;
+  agent_address: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface WalletBalance {
+  wallet_id: string;
+  total_balance: number;
+  available_balance: number;
+  unrealized_pnl: number;
+  currency: string;
+}
+
+export interface ConnectWalletRequest {
+  label: string;
+  master_address: string;
+  agent_address: string;
+  private_key: string;
+}
+
 // ─── Enums ───────────────────────────────────────────────
 
 export type OrderSide = "buy" | "sell";

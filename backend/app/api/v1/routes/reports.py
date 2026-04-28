@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.core.auth import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -24,7 +27,9 @@ class PerformanceReport(BaseModel):
 
 
 @router.get("/performance")
-async def get_performance_summary() -> Dict[str, Any]:
+async def get_performance_summary(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Get aggregated performance summary across all tracked strategies.
 
     Returns key metrics including return, Sharpe, MDD, win rate.
@@ -41,7 +46,10 @@ async def get_performance_summary() -> Dict[str, Any]:
 
 
 @router.get("/performance/{strategy_id}")
-async def get_strategy_performance(strategy_id: str) -> Dict[str, Any]:
+async def get_strategy_performance(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Get performance metrics for a specific strategy."""
     raise HTTPException(
         status_code=404,

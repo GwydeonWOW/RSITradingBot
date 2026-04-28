@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.auth import get_current_user
+from app.models.user import User
 from app.services.order_service import OrderService
 
 router = APIRouter()
 
-# Shared order service instance (per-process, not per-request)
-_order_service = OrderService()
+
+def _get_order_service(user: User) -> OrderService:
+    """Create an OrderService scoped to the authenticated user."""
+    return OrderService(user_id=user.id)
 
 
 class OrderSubmitRequest(BaseModel):
@@ -45,14 +49,18 @@ class ReconcileResponse(BaseModel):
 
 
 @router.post("/submit")
-async def submit_order(request: OrderSubmitRequest) -> OrderSubmitResponse:
+async def submit_order(
+    request: OrderSubmitRequest,
+    current_user: User = Depends(get_current_user),
+) -> OrderSubmitResponse:
     """Submit a new order.
 
     Creates the order locally, signs it, and prepares it for
     submission to Hyperliquid. Actual submission requires the
     WebSocket or REST transport layer.
     """
-    order = _order_service.create_order(
+    svc = _get_order_service(current_user)
+    order = svc.create_order(
         symbol=request.symbol,
         side=request.side,
         size=request.size,
@@ -62,7 +70,7 @@ async def submit_order(request: OrderSubmitRequest) -> OrderSubmitResponse:
         strategy_id=request.strategy_id,
     )
 
-    signed = _order_service.sign_order(order)
+    signed = svc.sign_order(order)
 
     return OrderSubmitResponse(
         order_id=order.id,
@@ -72,9 +80,13 @@ async def submit_order(request: OrderSubmitRequest) -> OrderSubmitResponse:
 
 
 @router.get("/{order_id}")
-async def get_order(order_id: str) -> Dict[str, Any]:
+async def get_order(
+    order_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Get order status by ID."""
-    order = _order_service.get_order(order_id)
+    svc = _get_order_service(current_user)
+    order = svc.get_order(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
     return {
@@ -92,9 +104,13 @@ async def get_order(order_id: str) -> Dict[str, Any]:
 
 
 @router.get("/")
-async def list_orders(symbol: Optional[str] = None) -> Dict[str, Any]:
+async def list_orders(
+    symbol: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """List active orders, optionally filtered by symbol."""
-    orders = _order_service.get_active_orders(symbol)
+    svc = _get_order_service(current_user)
+    orders = svc.get_active_orders(symbol)
     return {
         "orders": [
             {
@@ -112,7 +128,9 @@ async def list_orders(symbol: Optional[str] = None) -> Dict[str, Any]:
 
 
 @router.post("/reconcile")
-async def reconcile_orders() -> ReconcileResponse:
+async def reconcile_orders(
+    current_user: User = Depends(get_current_user),
+) -> ReconcileResponse:
     """Trigger reconciliation between local and venue state.
 
     Compares local order and position state with the latest

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.auth import get_current_user
 from app.core.risk_manager import RiskManager
+from app.models.user import User
 
 router = APIRouter()
 
@@ -54,7 +56,10 @@ class VaRResponse(BaseModel):
 
 
 @router.post("/limits/position-size")
-async def calculate_position_size(request: PositionSizeRequest) -> PositionSizeResponse:
+async def calculate_position_size(
+    request: PositionSizeRequest,
+    current_user: User = Depends(get_current_user),
+) -> PositionSizeResponse:
     """Calculate position size based on risk parameters.
 
     Supports fixed fractional and quarter-Kelly sizing methods.
@@ -88,7 +93,10 @@ async def calculate_position_size(request: PositionSizeRequest) -> PositionSizeR
 
 
 @router.post("/limits/var")
-async def calculate_var(request: VaRRequest) -> VaRResponse:
+async def calculate_var(
+    request: VaRRequest,
+    current_user: User = Depends(get_current_user),
+) -> VaRResponse:
     """Calculate Value-at-Risk.
 
     Supports historical (empirical) and parametric (normal) methods.
@@ -107,7 +115,9 @@ async def calculate_var(request: VaRRequest) -> VaRResponse:
 
 
 @router.get("/limits")
-async def get_risk_limits() -> Dict[str, Any]:
+async def get_risk_limits(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Get current risk limit configuration."""
     from app.config import settings
 

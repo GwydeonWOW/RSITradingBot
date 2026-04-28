@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.auth import get_current_user
+from app.models.user import User
 from app.services.backtest_service import BacktestService
 
 router = APIRouter()
@@ -51,7 +53,10 @@ class BacktestResponse(BaseModel):
 
 
 @router.post("/rsi/backtests")
-async def run_backtest(request: BacktestRequest) -> BacktestResponse:
+async def run_backtest(
+    request: BacktestRequest,
+    current_user: User = Depends(get_current_user),
+) -> BacktestResponse:
     """Run an RSI strategy backtest.
 
     Requires pre-loaded market data for the requested symbol and date range.
@@ -64,7 +69,10 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
 
 
 @router.post("/rsi/walkforward")
-async def run_walk_forward(request: WalkForwardRequest) -> Dict[str, Any]:
+async def run_walk_forward(
+    request: WalkForwardRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Run walk-forward validation on the RSI strategy."""
     raise HTTPException(
         status_code=501,
@@ -73,7 +81,10 @@ async def run_walk_forward(request: WalkForwardRequest) -> Dict[str, Any]:
 
 
 @router.get("/rsi/backtests/{result_id}")
-async def get_backtest_result(result_id: str) -> Dict[str, Any]:
+async def get_backtest_result(
+    result_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """Retrieve a stored backtest result."""
     result = backtest_service.get_result(result_id)
     if result is None:
@@ -96,7 +107,9 @@ async def get_backtest_result(result_id: str) -> Dict[str, Any]:
 
 
 @router.get("/rsi/backtests")
-async def list_backtests() -> Dict[str, Any]:
+async def list_backtests(
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
     """List all stored backtest results."""
     return {
         "results": backtest_service.list_results(),

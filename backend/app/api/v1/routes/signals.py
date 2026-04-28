@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.core.auth import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -31,7 +34,10 @@ class SignalEvaluateResponse(BaseModel):
 
 
 @router.post("/evaluate")
-async def evaluate_signal(request: SignalEvaluateRequest) -> SignalEvaluateResponse:
+async def evaluate_signal(
+    request: SignalEvaluateRequest,
+    current_user: User = Depends(get_current_user),
+) -> SignalEvaluateResponse:
     """Evaluate the RSI strategy for a given set of price data.
 
     Takes 4H, 1H closes and the current 15M price, runs through
