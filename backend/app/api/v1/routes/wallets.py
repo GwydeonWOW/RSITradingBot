@@ -93,12 +93,12 @@ async def list_wallets(
     ]
 
 
-@router.delete("/{wallet_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{wallet_id}")
 async def deactivate_wallet(
     wallet_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     """Deactivate a wallet (soft delete)."""
     try:
         uuid.UUID(wallet_id)
@@ -117,6 +117,7 @@ async def deactivate_wallet(
         raise HTTPException(status_code=404, detail="Wallet not found")
     wallet.is_active = False
     await db.flush()
+    return {"status": "deactivated", "wallet_id": wallet_id}
 
 
 @router.get("/{wallet_id}/balance", response_model=BalanceResponse)
