@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getUserSettings, updateUserSettings } from "@/api/settings";
 import type { UpdateUserSettings } from "@/api/settings";
-import { getWallets, connectWallet, deleteWallet, getWalletBalance } from "@/api/wallets";
+import { getWallets, connectWallet, deleteWallet, getWalletBalance, updateWallet } from "@/api/wallets";
 import type { Wallet } from "@/types";
 import { ApiError } from "@/api/client";
 
@@ -287,9 +287,9 @@ function ConnectWalletForm({
   onSuccess: () => void;
 }) {
   const [label, setLabel] = useState("");
-  const [masterAddress, setMasterAddress] = useState("");
   const [agentAddress, setAgentAddress] = useState("");
   const [privateKey, setPrivateKey] = useState("");
+  const [masterAddress, setMasterAddress] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -297,14 +297,19 @@ function ConnectWalletForm({
     e.preventDefault();
     setError("");
 
-    if (!label || !masterAddress || !agentAddress || !privateKey) {
-      setError("All fields are required.");
+    if (!label || !agentAddress || !privateKey) {
+      setError("API Wallet Name, Address, and Private Key are required.");
       return;
     }
 
     setLoading(true);
     try {
-      await connectWallet({ label, master_address: masterAddress, agent_address: agentAddress, private_key: privateKey });
+      await connectWallet({
+        label,
+        agent_address: agentAddress,
+        private_key: privateKey,
+        master_address: masterAddress || undefined,
+      });
       onSuccess();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -325,18 +330,19 @@ function ConnectWalletForm({
         </div>
       )}
 
-      <Field label="Label">
+      <Field label="API Wallet Name">
         <input type="text" required value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My trading wallet" className={inputClass} />
       </Field>
-      <Field label="Master Address">
-        <input type="text" required value={masterAddress} onChange={(e) => setMasterAddress(e.target.value)} placeholder="0x..." className={inputClass} />
-      </Field>
-      <Field label="Agent Address">
+      <Field label="API Wallet Address">
         <input type="text" required value={agentAddress} onChange={(e) => setAgentAddress(e.target.value)} placeholder="0x..." className={inputClass} />
       </Field>
-      <Field label="Agent Private Key">
+      <Field label="Private Key">
         <input type="password" required value={privateKey} onChange={(e) => setPrivateKey(e.target.value)} placeholder="One-time input, never stored in browser" className={inputClass} />
-        <p className="text-xs text-gray-600 mt-1">Sent once to the server and never stored in the frontend.</p>
+        <p className="text-xs text-gray-600 mt-1">Sent once to the server (encrypted). Never stored in the frontend.</p>
+      </Field>
+      <Field label="Account Address (optional)">
+        <input type="text" value={masterAddress} onChange={(e) => setMasterAddress(e.target.value)} placeholder="0x... — Your Hyperliquid master account address" className={inputClass} />
+        <p className="text-xs text-gray-600 mt-1">Needed for balance queries. You can add this later.</p>
       </Field>
 
       <div className="flex gap-2">
@@ -360,12 +366,16 @@ function WalletRow({
   onConfirmDelete: (id: string | null) => void;
   onDeleted: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const [editingMaster, setEditingMaster] = useState(false);
+  const [masterInput, setMasterInput] = useState(wallet.master_address ?? "");
 
-  const { data: balance } = useQuery({
+  const { data: balance, isError: balanceError } = useQuery({
     queryKey: ["walletBalance", wallet.id],
     queryFn: () => getWalletBalance(wallet.id),
     refetchInterval: 30000,
+    retry: false,
   });
 
   async function handleDelete() {
@@ -375,7 +385,19 @@ function WalletRow({
       onConfirmDelete(null);
       onDeleted();
     } catch {
-      // Error is handled by the global client
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveMaster() {
+    setLoading(true);
+    try {
+      await updateWallet(wallet.id, { master_address: masterInput || undefined });
+      setEditingMaster(false);
+      queryClient.invalidateQueries({ queryKey: ["wallets"] });
+      queryClient.invalidateQueries({ queryKey: ["walletBalance", wallet.id] });
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -391,14 +413,21 @@ function WalletRow({
             <span className="text-sm font-medium text-white">{wallet.label}</span>
             <span className={`inline-block w-2 h-2 rounded-full ${wallet.is_active ? "bg-profit" : "bg-gray-600"}`} />
           </div>
-          <div className="text-xs font-mono text-gray-500 mt-1">Master: {truncateAddress(wallet.master_address)}</div>
-          <div className="text-xs font-mono text-gray-500">Agent: {truncateAddress(wallet.agent_address)}</div>
+          <div className="text-xs font-mono text-gray-500 mt-1">Wallet: {truncateAddress(wallet.agent_address)}</div>
+          {wallet.master_address && (
+            <div className="text-xs font-mono text-gray-500">Account: {truncateAddress(wallet.master_address)}</div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {balance && (
-            <span className="text-xs text-gray-400">{balance.total_balance?.toFixed(4) ?? "N/A"}</span>
-          )}
+          {balance ? (
+            <div className="text-right">
+              <div className="text-xs text-white font-mono">${balance.account_value.toFixed(2)}</div>
+              <div className="text-[10px] text-gray-500">Value</div>
+            </div>
+          ) : balanceError ? (
+            <div className="text-[10px] text-gray-600">Balance unavailable</div>
+          ) : null}
           {isConfirming ? (
             <div className="flex gap-1">
               <button onClick={handleDelete} disabled={loading} className="px-2 py-1 bg-loss/20 text-loss text-xs rounded hover:bg-loss/30 disabled:opacity-50">
@@ -415,6 +444,33 @@ function WalletRow({
           )}
         </div>
       </div>
+
+      {/* Master address section */}
+      {!wallet.master_address && !editingMaster && (
+        <button
+          onClick={() => setEditingMaster(true)}
+          className="text-xs text-neutral-accent hover:underline"
+        >
+          + Add account address for balance queries
+        </button>
+      )}
+      {editingMaster && (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={masterInput}
+            onChange={(e) => setMasterInput(e.target.value)}
+            placeholder="0x... master account address"
+            className={inputClass}
+          />
+          <button onClick={handleSaveMaster} disabled={loading} className="px-3 py-2 bg-neutral-accent text-white text-xs font-semibold rounded-lg hover:bg-neutral-accent/90 disabled:opacity-50 shrink-0">
+            {loading ? "..." : "Save"}
+          </button>
+          <button onClick={() => setEditingMaster(false)} className="px-3 py-2 border border-gray-700 text-gray-400 text-xs rounded-lg hover:bg-gray-700/50 shrink-0">
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }

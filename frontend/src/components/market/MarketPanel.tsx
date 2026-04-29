@@ -5,7 +5,18 @@ import { PriceWidget } from "./PriceWidget";
 
 export function MarketPanel() {
   const markets = useMarketStore((s) => s.markets);
-  const btc = markets["BTC"]!;
+  const btc = markets["BTC"];
+
+  if (!btc) {
+    return (
+      <div className="bg-surface rounded-xl border border-border p-4 space-y-4">
+        <h2 className="text-sm font-semibold text-gray-300">Market</h2>
+        <div className="text-center py-6 text-gray-600 text-xs">
+          Waiting for market data...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-surface rounded-xl border border-border p-4 space-y-4">

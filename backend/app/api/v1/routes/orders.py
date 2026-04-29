@@ -217,8 +217,9 @@ async def reconcile_orders(
     venue_positions: Dict[str, Dict] = {}
 
     if wallet:
-        venue_orders = await _fetch_venue_orders(wallet.agent_address)
-        venue_positions = await _fetch_venue_positions(wallet.agent_address)
+        query_address = wallet.master_address or wallet.agent_address
+        venue_orders = await _fetch_venue_orders(query_address)
+        venue_positions = await _fetch_venue_positions(query_address)
 
     order_result = reconciler.reconcile_orders(
         local_orders=local_orders,

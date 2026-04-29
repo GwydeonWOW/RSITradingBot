@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import String, DateTime, Integer, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
@@ -25,7 +26,7 @@ class Wallet(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
 
     label: Mapped[str] = mapped_column(String(100), nullable=False, default="main")
-    master_address: Mapped[str] = mapped_column(String(255), nullable=False)
+    master_address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     agent_address: Mapped[str] = mapped_column(String(255), nullable=False)
     encrypted_private_key: Mapped[str] = mapped_column(String(1024), nullable=False)
 

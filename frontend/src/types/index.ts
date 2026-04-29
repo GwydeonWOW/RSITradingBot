@@ -14,25 +14,25 @@ export interface AuthResponse {
 export interface Wallet {
   id: string;
   label: string;
-  master_address: string;
+  master_address: string | null;
   agent_address: string;
   is_active: boolean;
   created_at: string;
 }
 
 export interface WalletBalance {
-  wallet_id: string;
-  total_balance: number;
-  available_balance: number;
+  account_value: number;
+  total_raw_usd: number;
+  margin_used: number;
+  withdrawable: number;
   unrealized_pnl: number;
-  currency: string;
 }
 
 export interface ConnectWalletRequest {
   label: string;
-  master_address: string;
   agent_address: string;
   private_key: string;
+  master_address?: string;
 }
 
 // ─── Enums ───────────────────────────────────────────────
@@ -153,22 +153,6 @@ export interface PositionSizingData {
   leverage: number;
   risk_amount: number;
   risk_pct: number;
-}
-
-export interface OrderSubmitRequest {
-  symbol: string;
-  side: OrderSide;
-  size: number;
-  order_type: OrderType;
-  price?: number;
-  stop_price?: number;
-  strategy_id?: string;
-}
-
-export interface OrderSubmitResponse {
-  order_id: string;
-  status: OrderStatus;
-  message: string;
 }
 
 export interface OrderDetail {

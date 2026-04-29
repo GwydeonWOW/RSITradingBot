@@ -3,41 +3,19 @@ import { RiskPanel } from "@/components/risk/RiskPanel";
 import { ExecutionPanel } from "@/components/execution/ExecutionPanel";
 import { OrderBook } from "@/components/execution/OrderBook";
 import { FillTable } from "@/components/execution/FillTable";
-import { EquityCurve } from "@/components/charts/EquityCurve";
 import { useActiveOrders } from "@/hooks/useMarketData";
-import { useMarketStore } from "@/store/useMarketStore";
-import { useWebSocket } from "@/hooks/useWebSocket";
-import { useCallback } from "react";
-import type { MarketData } from "@/types";
-
-const SAMPLE_EQUITY = Array.from({ length: 60 }, (_, i) => ({
-  date: new Date(Date.now() - (60 - i) * 3600000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  }),
-  equity: 10000 + Math.sin(i / 5) * 300 + i * 8,
-}));
+import { useQuery } from "@tanstack/react-query";
+import { getWallets } from "@/api/wallets";
 
 export function DashboardPage() {
-  const updateMarket = useMarketStore((s) => s.updateMarket);
   const { data: ordersData } = useActiveOrders();
-
-  const handleMessage = useCallback(
-    (data: unknown) => {
-      if (data && typeof data === "object" && "symbol" in data) {
-        updateMarket(data as MarketData);
-      }
-    },
-    [updateMarket]
-  );
-
-  useWebSocket({
-    url: "ws://localhost:8000/ws/market",
-    onMessage: handleMessage,
-    enabled: false,
+  const { data: wallets } = useQuery({
+    queryKey: ["wallets"],
+    queryFn: getWallets,
   });
 
   const orders = ordersData?.orders ?? [];
+  const hasWallet = (wallets?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -57,10 +35,26 @@ export function DashboardPage() {
         <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
           <h2 className="text-sm font-semibold text-gray-300">Compliance</h2>
           <div className="space-y-3">
-            <ComplianceRow label="Agent Wallet" ok={true} detail="Connected" />
-            <ComplianceRow label="API Key" ok={true} detail="Active" />
-            <ComplianceRow label="IP Allowlist" ok={true} detail="192.168.1.0/24" />
-            <ComplianceRow label="Log Retention" ok={true} detail="90 days" />
+            <ComplianceRow
+              label="Agent Wallet"
+              ok={hasWallet}
+              detail={hasWallet ? "Connected" : "Not connected"}
+            />
+            <ComplianceRow
+              label="API Key"
+              ok={false}
+              detail="Not configured"
+            />
+            <ComplianceRow
+              label="IP Allowlist"
+              ok={false}
+              detail="Not configured"
+            />
+            <ComplianceRow
+              label="Log Retention"
+              ok={false}
+              detail="Not configured"
+            />
           </div>
         </div>
       </div>
@@ -69,7 +63,9 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 bg-surface rounded-xl border border-border p-4">
           <h2 className="text-sm font-semibold text-gray-300 mb-3">Equity Curve</h2>
-          <EquityCurve data={SAMPLE_EQUITY} height={250} />
+          <div className="text-center py-12 text-gray-600 text-xs">
+            No equity data yet. Curve will appear after trades are executed.
+          </div>
         </div>
         <div className="xl:col-span-1">
           <OrderBook symbol="BTC" />
@@ -79,7 +75,13 @@ export function DashboardPage() {
       {/* Third row: Recent Fills */}
       <div className="bg-surface rounded-xl border border-border p-4">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">Recent Orders</h2>
-        <FillTable orders={orders} />
+        {orders.length === 0 ? (
+          <div className="text-center py-6 text-gray-600 text-xs">
+            No orders yet. Orders will appear when the bot is actively trading.
+          </div>
+        ) : (
+          <FillTable orders={orders} />
+        )}
       </div>
     </div>
   );

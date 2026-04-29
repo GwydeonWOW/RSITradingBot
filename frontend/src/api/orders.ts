@@ -1,15 +1,9 @@
 import { get, post } from "./client";
 import type {
-  OrderSubmitRequest,
-  OrderSubmitResponse,
   OrderDetail,
   OrderListResponse,
   ReconcileResponse,
 } from "@/types";
-
-export function submitOrder(req: OrderSubmitRequest) {
-  return post<OrderSubmitResponse>("/v1/orders/submit", req);
-}
 
 export function getOrder(orderId: string) {
   return get<OrderDetail>(`/v1/orders/${orderId}`);
