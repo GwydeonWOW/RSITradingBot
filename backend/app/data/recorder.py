@@ -186,7 +186,8 @@ class MarketDataRecorder:
         if not dir_path.exists():
             return pd.DataFrame()
 
-        pattern = f"*_{"15m" if timeframe == "15m" else timeframe}.parquet"
+        tf_suffix = "15m" if timeframe == "15m" else timeframe
+        pattern = f"*_{tf_suffix}.parquet"
         files = sorted(dir_path.glob(pattern))
 
         if not files:
