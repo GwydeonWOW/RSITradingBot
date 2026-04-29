@@ -85,8 +85,11 @@ services:
 
   frontend:
     image: ghcr.io/gwydeonwow/rsi-frontend:latest
-    ports:
-      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    expose:
+      - "3000"
     depends_on:
       backend:
         condition: service_healthy
