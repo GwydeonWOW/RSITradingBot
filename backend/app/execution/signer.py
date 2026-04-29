@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from eth_account import Account
-from eth_account.messages import encode_structured_data
 from eth_hash.auto import keccak as keccak256
 
 logger = logging.getLogger(__name__)
@@ -22,16 +21,17 @@ logger = logging.getLogger(__name__)
 PHANTOM_GAS = 2_000_000
 PHANTOM_GAS_PRICE = 0
 
-EIP712_DOMAIN_TYPES = [
-    {"name": "name", "type": "string"},
-    {"name": "version", "type": "uint32"},
-    {"name": "chainId", "type": "uint256"},
-]
+EIP712_DOMAIN = {
+    "name": "Exchange",
+    "version": 1,
+}
 
-AGENT_TYPES = [
-    {"name": "source", "type": "string"},
-    {"name": "connectionId", "type": "bytes32"},
-]
+AGENT_TYPES = {
+    "Agent": [
+        {"name": "source", "type": "string"},
+        {"name": "connectionId", "type": "bytes32"},
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -165,8 +165,10 @@ class HyperliquidSigner:
     def _sign_action(self, action: Dict[str, Any]) -> Dict[str, str]:
         """Sign an action using EIP-712 typed data for Hyperliquid.
 
-        The action is hashed with phantom gas fields, wrapped in an
-        Agent EIP-712 struct, and signed with secp256k1.
+        1. Add phantom gas fields to the action.
+        2. Hash the canonical JSON with keccak256 -> action_hash.
+        3. Build an EIP-712 "Agent" typed message with the hash.
+        4. Sign with Account.sign_typed_data (eth-account >= 0.11).
         """
         action_with_gas = dict(action)
         action_with_gas["gas"] = PHANTOM_GAS
@@ -175,24 +177,17 @@ class HyperliquidSigner:
         action_json = json.dumps(action_with_gas, separators=(",", ":")).encode()
         action_hash = keccak256(action_json)
 
-        structured_data = {
-            "domain": {
-                "name": "Exchange",
-                "version": 1,
+        signed = Account.sign_typed_data(
+            self._private_key,
+            domain_data={
+                **EIP712_DOMAIN,
                 "chainId": self._chain_id,
             },
-            "types": {
-                "EIP712Domain": EIP712_DOMAIN_TYPES,
-                "Agent": AGENT_TYPES,
-            },
-            "primaryType": "Agent",
-            "message": {
+            message_types=AGENT_TYPES,
+            message_data={
                 "source": "a",
                 "connectionId": action_hash,
             },
-        }
-
-        encoded = encode_structured_data(structured_data)
-        signed = Account.sign_message(encoded, self._private_key)
+        )
 
         return {"r": hex(signed.r), "s": hex(signed.s), "v": signed.v}
