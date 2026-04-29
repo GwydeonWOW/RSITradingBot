@@ -19,12 +19,18 @@ export interface UserSettings {
   max_total_exposure_pct: number;
   universe: string[];
   has_zai_api_key: boolean;
+  zai_api_key?: string;
 }
+
+/** Body for PUT /v1/settings - universe is sent as comma-separated string. */
+export type UpdateUserSettings = Omit<Partial<UserSettings>, "universe" | "has_zai_api_key"> & {
+  universe?: string;
+};
 
 export function getUserSettings() {
   return get<UserSettings>("/v1/settings");
 }
 
-export function updateUserSettings(data: Partial<UserSettings>) {
+export function updateUserSettings(data: UpdateUserSettings) {
   return put<UserSettings>("/v1/settings", data);
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getUserSettings, updateUserSettings } from "@/api/settings";
-import type { UserSettings } from "@/api/settings";
+import type { UpdateUserSettings } from "@/api/settings";
 import { getWallets, connectWallet, deleteWallet, getWalletBalance } from "@/api/wallets";
 import type { Wallet } from "@/types";
 import { ApiError } from "@/api/client";
@@ -53,7 +53,7 @@ function StrategyParamsSection() {
   }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: (data: Partial<UserSettings>) => updateUserSettings(data),
+    mutationFn: (data: UpdateUserSettings) => updateUserSettings(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["userSettings"] }),
   });
 
@@ -140,7 +140,7 @@ function RiskLimitsSection() {
   }, [settings]);
 
   const saveMutation = useMutation({
-    mutationFn: (data: Partial<UserSettings>) => updateUserSettings(data),
+    mutationFn: (data: UpdateUserSettings) => updateUserSettings(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["userSettings"] }),
   });
 
@@ -438,7 +438,7 @@ function ApiKeysSection() {
   const [error, setError] = useState("");
 
   const saveMutation = useMutation({
-    mutationFn: (data: Partial<UserSettings>) => updateUserSettings(data),
+    mutationFn: (data: UpdateUserSettings) => updateUserSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["userSettings"] });
       setSaved(true);
