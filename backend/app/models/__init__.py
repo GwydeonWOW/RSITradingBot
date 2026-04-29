@@ -9,6 +9,7 @@ from app.models.position import Position
 from app.models.fill import Fill
 from app.models.ledger import LedgerEntry
 from app.models.backtest import Backtest
+from app.models.user_settings import UserSettings
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "Fill",
     "LedgerEntry",
     "Backtest",
+    "UserSettings",
 ]

@@ -1,4 +1,8 @@
-"""Application configuration via pydantic-settings."""
+"""Application configuration via pydantic-settings.
+
+Only infrastructure and venue-level settings live here.
+Per-user strategy/risk/API settings are stored in the user_settings table.
+"""
 
 from __future__ import annotations
 
@@ -51,32 +55,7 @@ class Settings(BaseSettings):
     hyperliquid_ws_url: str = "wss://api.hyperliquid.xyz/ws"
     hyperliquid_network: str = "mainnet"
 
-    # RSI Strategy Parameters
-    rsi_period: int = 14
-    rsi_regime_timeframe: str = "4h"
-    rsi_regime_bullish_threshold: float = 55.0
-    rsi_regime_bearish_threshold: float = 45.0
-    rsi_signal_timeframe: str = "1h"
-    rsi_signal_long_pullback_low: float = 40.0
-    rsi_signal_long_pullback_high: float = 48.0
-    rsi_signal_long_reclaim: float = 50.0
-    rsi_signal_short_bounce_low: float = 52.0
-    rsi_signal_short_bounce_high: float = 60.0
-    rsi_signal_short_lose: float = 50.0
-    rsi_execution_timeframe: str = "15m"
-    rsi_exit_partial_r: float = 1.5
-    rsi_exit_breakeven_r: float = 1.0
-    rsi_exit_max_hours: int = 36
-
-    # Risk Parameters
-    risk_per_trade_min: float = 0.0025
-    risk_per_trade_max: float = 0.0075
-    max_leverage: int = 3
-    max_total_exposure_pct: float = 0.30
-    universe: str = "BTC,ETH,SOL"
-
-    # z.ai Integration
-    zai_api_key: str = ""
+    # z.ai (only the base URL is global; API keys are per-user in user_settings)
     zai_api_url: str = "https://api.z.ai/v1"
 
     # CORS
@@ -89,11 +68,6 @@ class Settings(BaseSettings):
         if self.app_env == "production" and not self.secret_key:
             raise ValueError("SECRET_KEY must be set in production")
         return self
-
-    @property
-    def universe_list(self) -> List[str]:
-        """Return the trading universe as a list of symbols."""
-        return [s.strip() for s in self.universe.split(",")]
 
     @property
     def cors_origins_list(self) -> List[str]:

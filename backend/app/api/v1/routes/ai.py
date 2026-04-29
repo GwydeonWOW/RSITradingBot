@@ -6,9 +6,13 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.dependencies import get_db
 from app.models.user import User
+from app.models.user_settings import UserSettings
 
 router = APIRouter()
 
@@ -35,18 +39,29 @@ class ExceptionClassifyResponse(BaseModel):
 async def classify_exception(
     request: ExceptionClassifyRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ExceptionClassifyResponse:
     """Classify a market exception using the AI model.
 
-    Sends market context and signal data to the z.ai API for
-    classification. Returns the category, confidence, and
-    recommended action.
+    Uses the user's own z.ai API key from their settings.
     """
     from app.services.ai_service import AIService
     from app.config import settings
 
+    # Get user's API key from their settings
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == current_user.id)
+    )
+    user_settings = result.scalar_one_or_none()
+    api_key = user_settings.zai_api_key if user_settings and user_settings.zai_api_key else ""
+
+    if not api_key:
+        return ExceptionClassifyResponse(
+            error="z.ai API key not configured. Add it in Settings.",
+        )
+
     service = AIService(
-        api_key=settings.zai_api_key,
+        api_key=api_key,
         api_url=settings.zai_api_url,
     )
 

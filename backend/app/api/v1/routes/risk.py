@@ -6,10 +6,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.core.risk_manager import RiskManager
+from app.dependencies import get_db
 from app.models.user import User
+from app.models.user_settings import UserSettings
 
 router = APIRouter()
 
@@ -117,14 +121,27 @@ async def calculate_var(
 @router.get("/limits")
 async def get_risk_limits(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Get current risk limit configuration."""
-    from app.config import settings
+    """Get current risk limit configuration from user settings."""
+    result = await db.execute(
+        select(UserSettings).where(UserSettings.user_id == current_user.id)
+    )
+    s = result.scalar_one_or_none()
+    if s is None:
+        # Return defaults
+        return {
+            "max_leverage": 3,
+            "risk_per_trade_min": 0.0025,
+            "risk_per_trade_max": 0.0075,
+            "max_total_exposure_pct": 0.30,
+            "universe": ["BTC", "ETH", "SOL"],
+        }
 
     return {
-        "max_leverage": settings.max_leverage,
-        "risk_per_trade_min": settings.risk_per_trade_min,
-        "risk_per_trade_max": settings.risk_per_trade_max,
-        "max_total_exposure_pct": settings.max_total_exposure_pct,
-        "universe": settings.universe_list,
+        "max_leverage": s.max_leverage,
+        "risk_per_trade_min": s.risk_per_trade_min,
+        "risk_per_trade_max": s.risk_per_trade_max,
+        "max_total_exposure_pct": s.max_total_exposure_pct,
+        "universe": [sym.strip() for sym in s.universe.split(",") if sym.strip()],
     }
