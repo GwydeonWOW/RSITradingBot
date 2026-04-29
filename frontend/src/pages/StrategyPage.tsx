@@ -1,38 +1,10 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { evaluateSignal } from "@/api/signals";
-import { RSIMultiTFChart } from "@/components/charts/RSIMultiTFChart";
+import { getUserSettings } from "@/api/settings";
 import { useSignalStore } from "@/store/useSignalStore";
 import type { SignalStage } from "@/types";
 import clsx from "clsx";
-
-const RSI_HISTORY = Array.from({ length: 48 }, (_, i) => ({
-  time: new Date(Date.now() - (48 - i) * 3600000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  }),
-  rsi_4h: 50 + Math.sin(i / 8) * 12 + Math.random() * 3,
-  rsi_1h: 50 + Math.sin(i / 5) * 15 + Math.random() * 5,
-  rsi_15m: 50 + Math.sin(i / 3) * 18 + Math.random() * 7,
-}));
-
-const STRATEGY_CONFIG = {
-  rsi_period: 14,
-  regime_timeframe: "4H",
-  regime_bullish: 55,
-  regime_bearish: 45,
-  signal_timeframe: "1H",
-  long_pullback_low: 40,
-  long_pullback_high: 48,
-  long_reclaim: 50,
-  short_bounce_low: 52,
-  short_bounce_high: 60,
-  short_lose: 50,
-  execution_timeframe: "15m",
-  exit_partial_r: 1.5,
-  exit_breakeven_r: 1.0,
-  exit_max_hours: 36,
-};
 
 const STAGE_COLORS: Record<SignalStage, string> = {
   inactive: "bg-gray-700 text-gray-400",
@@ -46,13 +18,18 @@ export function StrategyPage() {
   const history = useSignalStore((s) => s.history);
   const [symbol] = useState("BTC");
 
+  const { data: settings } = useQuery({
+    queryKey: ["userSettings"],
+    queryFn: getUserSettings,
+  });
+
   const evaluateMutation = useMutation({
     mutationFn: () =>
       evaluateSignal({
         symbol,
-        closes_4h: generateCloses(100, 94000),
-        closes_1h: generateCloses(100, 94500),
-        price_15m: 94520,
+        closes_4h: [],
+        closes_1h: [],
+        price_15m: 0,
         is_bullish_15m: true,
       }),
   });
@@ -74,14 +51,20 @@ export function StrategyPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2 text-xs">
-          {Object.entries(STRATEGY_CONFIG).map(([key, value]) => (
-            <div key={key} className="flex justify-between py-1 border-b border-border/50">
-              <span className="text-gray-500">{formatLabel(key)}</span>
-              <span className="text-white font-mono">{String(value)}</span>
-            </div>
-          ))}
-        </div>
+        {settings ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+            <ConfigRow label="RSI Period" value={String(settings.rsi_period)} />
+            <ConfigRow label="Regime Timeframe" value="4H" />
+            <ConfigRow label="Regime Bullish" value={String(settings.rsi_regime_bullish_threshold)} />
+            <ConfigRow label="Regime Bearish" value={String(settings.rsi_regime_bearish_threshold)} />
+            <ConfigRow label="Signal Timeframe" value="1H" />
+            <ConfigRow label="Exit Partial R" value={String(settings.rsi_exit_partial_r)} />
+            <ConfigRow label="Exit Breakeven R" value={String(settings.rsi_exit_breakeven_r)} />
+            <ConfigRow label="Exit Max Hours" value={String(settings.rsi_exit_max_hours)} />
+          </div>
+        ) : (
+          <div className="text-center py-4 text-gray-600 text-xs">Loading configuration...</div>
+        )}
       </div>
 
       {/* Current Evaluation Result */}
@@ -119,7 +102,7 @@ export function StrategyPage() {
       <div className="bg-surface rounded-xl border border-border p-4">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">Active Signals</h2>
         {activeSignals.length === 0 ? (
-          <div className="text-center py-6 text-gray-600 text-sm">No active signals</div>
+          <div className="text-center py-6 text-gray-600 text-xs">No active signals</div>
         ) : (
           <div className="space-y-2">
             {activeSignals.map((sig) => (
@@ -167,63 +150,80 @@ export function StrategyPage() {
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-gray-500 inline-block" /> 15m</span>
           </div>
         </div>
-        <RSIMultiTFChart data={RSI_HISTORY} />
+        <div className="text-center py-12 text-gray-600 text-xs">
+          RSI data will appear when the market data feed is connected.
+        </div>
       </div>
 
       {/* Signal History */}
       <div className="bg-surface rounded-xl border border-border p-4">
         <h2 className="text-sm font-semibold text-gray-300 mb-3">Signal History</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-gray-500 uppercase border-b border-border">
-                <th className="text-left py-2 px-2">Time</th>
-                <th className="text-left py-2 px-2">Type</th>
-                <th className="text-left py-2 px-2">Regime</th>
-                <th className="text-right py-2 px-2">RSI 1H</th>
-                <th className="text-right py-2 px-2">RSI 4H</th>
-                <th className="text-right py-2 px-2">Price</th>
-                <th className="text-right py-2 px-2">Strength</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.slice(0, 20).map((sig) => (
-                <tr key={sig.id} className="border-b border-border/50 hover:bg-gray-800/30">
-                  <td className="py-2 px-2 text-gray-400">
-                    {new Date(sig.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </td>
-                  <td className="py-2 px-2">
-                    <span className={sig.type === "long" ? "text-profit font-semibold" : "text-loss font-semibold"}>
-                      {sig.type.toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2">
-                    <span className={
-                      sig.regime === "bullish" ? "text-profit" : sig.regime === "bearish" ? "text-loss" : "text-neutral-accent"
-                    }>
-                      {sig.regime}
-                    </span>
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-300">{sig.rsi_1h.toFixed(1)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-300">{sig.rsi_4h.toFixed(1)}</td>
-                  <td className="py-2 px-2 text-right font-mono text-gray-300">${sig.price.toFixed(0)}</td>
-                  <td className="py-2 px-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <div className="w-12 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${sig.strength > 0.6 ? "bg-profit" : sig.strength > 0.3 ? "bg-yellow-500" : "bg-loss"}`}
-                          style={{ width: `${sig.strength * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-gray-400 w-8 text-right">{(sig.strength * 100).toFixed(0)}%</span>
-                    </div>
-                  </td>
+        {history.length === 0 ? (
+          <div className="text-center py-6 text-gray-600 text-xs">
+            No signal history yet. Signals will appear when the bot evaluates market conditions.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-500 uppercase border-b border-border">
+                  <th className="text-left py-2 px-2">Time</th>
+                  <th className="text-left py-2 px-2">Type</th>
+                  <th className="text-left py-2 px-2">Regime</th>
+                  <th className="text-right py-2 px-2">RSI 1H</th>
+                  <th className="text-right py-2 px-2">RSI 4H</th>
+                  <th className="text-right py-2 px-2">Price</th>
+                  <th className="text-right py-2 px-2">Strength</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {history.slice(0, 20).map((sig) => (
+                  <tr key={sig.id} className="border-b border-border/50 hover:bg-gray-800/30">
+                    <td className="py-2 px-2 text-gray-400">
+                      {new Date(sig.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className={sig.type === "long" ? "text-profit font-semibold" : "text-loss font-semibold"}>
+                        {sig.type.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className={
+                        sig.regime === "bullish" ? "text-profit" : sig.regime === "bearish" ? "text-loss" : "text-neutral-accent"
+                      }>
+                        {sig.regime}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-300">{sig.rsi_1h.toFixed(1)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-300">{sig.rsi_4h.toFixed(1)}</td>
+                    <td className="py-2 px-2 text-right font-mono text-gray-300">${sig.price.toFixed(0)}</td>
+                    <td className="py-2 px-2 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <div className="w-12 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${sig.strength > 0.6 ? "bg-profit" : sig.strength > 0.3 ? "bg-yellow-500" : "bg-loss"}`}
+                            style={{ width: `${sig.strength * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-400 w-8 text-right">{(sig.strength * 100).toFixed(0)}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function ConfigRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between py-1 border-b border-border/50">
+      <span className="text-gray-500">{label}</span>
+      <span className="text-white font-mono">{value}</span>
     </div>
   );
 }
@@ -235,20 +235,4 @@ function StrengthBar({ value }: { value: number }) {
       <div className={`h-full rounded-full ${color}`} style={{ width: `${value * 100}%` }} />
     </div>
   );
-}
-
-function formatLabel(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function generateCloses(count: number, base: number): number[] {
-  const closes: number[] = [];
-  let price = base;
-  for (let i = 0; i < count; i++) {
-    price += (Math.random() - 0.48) * base * 0.005;
-    closes.push(price);
-  }
-  return closes;
 }

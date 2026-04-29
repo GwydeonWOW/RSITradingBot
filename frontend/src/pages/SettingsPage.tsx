@@ -376,6 +376,7 @@ function WalletRow({
     queryFn: () => getWalletBalance(wallet.id),
     refetchInterval: 30000,
     retry: false,
+    enabled: !!wallet.master_address,
   });
 
   async function handleDelete() {
@@ -420,7 +421,9 @@ function WalletRow({
         </div>
 
         <div className="flex items-center gap-2">
-          {balance ? (
+          {!wallet.master_address ? (
+            <div className="text-[10px] text-yellow-500">Add account address to see balance</div>
+          ) : balance ? (
             <div className="text-right">
               <div className="text-xs text-white font-mono">${balance.account_value.toFixed(2)}</div>
               <div className="text-[10px] text-gray-500">Value</div>
