@@ -77,7 +77,7 @@ services:
   frontend:
     image: ghcr.io/gwydeonwow/rsi-frontend:latest
     ports:
-      - '8080:80'
+      - '3000:80'
     depends_on:
       backend:
         condition: service_healthy
