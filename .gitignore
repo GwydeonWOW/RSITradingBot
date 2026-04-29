@@ -46,8 +46,8 @@ out/
 *.pem
 *.key
 
-# Data
-data/
+# Data (runtime data files, not source code)
+/backend/data/
 *.parquet
 *.csv
 *.db
