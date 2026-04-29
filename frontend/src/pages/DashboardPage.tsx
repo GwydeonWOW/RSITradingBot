@@ -6,12 +6,21 @@ import { FillTable } from "@/components/execution/FillTable";
 import { useActiveOrders } from "@/hooks/useMarketData";
 import { useQuery } from "@tanstack/react-query";
 import { getWallets } from "@/api/wallets";
+import { getWalletBalance } from "@/api/wallets";
 
 export function DashboardPage() {
   const { data: ordersData } = useActiveOrders();
   const { data: wallets } = useQuery({
     queryKey: ["wallets"],
     queryFn: getWallets,
+  });
+
+  const activeWallet = wallets?.[0];
+  const { data: balance } = useQuery({
+    queryKey: ["walletBalance", activeWallet?.id],
+    queryFn: () => getWalletBalance(activeWallet!.id),
+    enabled: !!activeWallet?.master_address,
+    refetchInterval: 30000,
   });
 
   const orders = ordersData?.orders ?? [];
@@ -31,31 +40,48 @@ export function DashboardPage() {
           <ExecutionPanel />
         </div>
 
-        {/* Compliance Panel */}
+        {/* Wallet & Compliance Panel */}
         <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-300">Compliance</h2>
-          <div className="space-y-3">
-            <ComplianceRow
-              label="Agent Wallet"
-              ok={hasWallet}
-              detail={hasWallet ? "Connected" : "Not connected"}
-            />
-            <ComplianceRow
-              label="API Key"
-              ok={false}
-              detail="Not configured"
-            />
-            <ComplianceRow
-              label="IP Allowlist"
-              ok={false}
-              detail="Not configured"
-            />
-            <ComplianceRow
-              label="Log Retention"
-              ok={false}
-              detail="Not configured"
-            />
-          </div>
+          <h2 className="text-sm font-semibold text-gray-300">Account</h2>
+          {hasWallet && balance ? (
+            <div className="space-y-3">
+              <div className="bg-gray-800/50 rounded-lg p-3">
+                <span className="text-xs text-gray-500 uppercase">Account Value</span>
+                <span className="block text-lg font-semibold text-white font-mono">
+                  ${balance.account_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-gray-500">Withdrawable</span>
+                  <span className="block text-white font-mono">${balance.withdrawable.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Margin Used</span>
+                  <span className="block text-white font-mono">${balance.margin_used.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Unrealized PnL</span>
+                  <span className={`block font-mono ${balance.unrealized_pnl >= 0 ? "text-profit" : "text-loss"}`}>
+                    ${balance.unrealized_pnl.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Raw USD</span>
+                  <span className="block text-white font-mono">${balance.total_raw_usd.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          ) : hasWallet && !activeWallet?.master_address ? (
+            <div className="space-y-3">
+              <ComplianceRow label="Wallet" ok={true} detail="Connected" />
+              <ComplianceRow label="Balance" ok={false} detail="Add account address" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <ComplianceRow label="Wallet" ok={false} detail="Not connected" />
+            </div>
+          )}
         </div>
       </div>
 

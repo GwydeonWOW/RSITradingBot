@@ -1,30 +1,18 @@
 import { create } from "zustand";
-import type { MarketData, Regime } from "@/types";
+import type { MarketTicker } from "@/api/market";
 
 interface MarketState {
-  markets: Record<string, MarketData>;
-  updateMarket: (data: MarketData) => void;
-  setRegime: (symbol: string, regime: Regime) => void;
+  tickers: Record<string, MarketTicker>;
+  lastUpdate: number;
+  setTickers: (tickers: MarketTicker[]) => void;
 }
 
 export const useMarketStore = create<MarketState>((set) => ({
-  markets: {},
-  updateMarket: (data) =>
-    set((state) => ({
-      markets: {
-        ...state.markets,
-        [data.symbol]: { ...data, lastUpdate: Date.now() },
-      },
-    })),
-  setRegime: (symbol, regime) =>
-    set((state) => {
-      const existing = state.markets[symbol];
-      if (!existing) return state;
-      return {
-        markets: {
-          ...state.markets,
-          [symbol]: { ...existing, regime },
-        },
-      };
+  tickers: {},
+  lastUpdate: 0,
+  setTickers: (list) =>
+    set({
+      tickers: Object.fromEntries(list.map((t) => [t.symbol, t])),
+      lastUpdate: Date.now(),
     }),
 }));
