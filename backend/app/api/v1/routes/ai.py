@@ -65,22 +65,23 @@ async def classify_exception(
         api_url=settings.zai_api_url,
     )
 
-    result = await service.classify_exception(
-        market_context=request.market_context,
-        signal_data=request.signal_data,
-        exception_type=request.exception_type,
-    )
-
-    if result is None:
-        return ExceptionClassifyResponse(
-            error="AI classification unavailable. Check API key configuration.",
+    try:
+        result = await service.classify_exception(
+            market_context=request.market_context,
+            signal_data=request.signal_data,
+            exception_type=request.exception_type,
         )
 
-    return ExceptionClassifyResponse(
-        category=result.category,
-        confidence=result.confidence,
-        explanation=result.explanation,
-        recommended_action=result.recommended_action,
-    )
+        if result is None:
+            return ExceptionClassifyResponse(
+                error="AI classification unavailable. Check API key configuration.",
+            )
 
-    await service.close()
+        return ExceptionClassifyResponse(
+            category=result.category,
+            confidence=result.confidence,
+            explanation=result.explanation,
+            recommended_action=result.recommended_action,
+        )
+    finally:
+        await service.close()

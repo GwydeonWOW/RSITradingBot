@@ -9,7 +9,7 @@ from sqlalchemy import String, DateTime, Float, ForeignKey, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 from app.models.order import OrderSide
 
 
@@ -31,4 +31,4 @@ class Fill(Base):
     fee: Mapped[float] = mapped_column(Float, default=0.0)
     fee_token: Mapped[str] = mapped_column(String(20), nullable=True)
 
-    filled_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    filled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

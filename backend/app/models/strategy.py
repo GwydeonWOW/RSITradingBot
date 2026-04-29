@@ -9,7 +9,7 @@ from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 
 
 class Strategy(Base):
@@ -31,5 +31,5 @@ class Strategy(Base):
     risk_per_trade: Mapped[float] = mapped_column(Float, default=0.005)
 
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

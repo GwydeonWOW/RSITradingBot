@@ -55,7 +55,7 @@ services:
       HYPERLIQUID_WS_URL: ${HYPERLIQUID_WS_URL:-wss://api.hyperliquid.xyz/ws}
       HYPERLIQUID_API_URL: ${HYPERLIQUID_API_URL:-https://api.hyperliquid.xyz}
       HYPERLIQUID_NETWORK: ${HYPERLIQUID_NETWORK:-mainnet}
-      ZAI_API_URL: ${ZAI_API_URL:-https://api.z.ai/v1}
+      ZAI_API_URL: ${ZAI_API_URL:-https://api.z.ai/api/paas/v4}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     depends_on:
       postgres:

@@ -9,7 +9,7 @@ from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 
 
 class Backtest(Base):
@@ -37,5 +37,5 @@ class Backtest(Base):
     equity_curve: Mapped[dict] = mapped_column(JSON, nullable=True)
     trades_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)

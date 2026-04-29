@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     hyperliquid_network: str = "mainnet"
 
     # z.ai (only the base URL is global; API keys are per-user in user_settings)
-    zai_api_url: str = "https://api.z.ai/v1"
+    zai_api_url: str = "https://api.z.ai/api/paas/v4"
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
@@ -65,8 +65,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
-        if self.app_env == "production" and not self.secret_key:
-            raise ValueError("SECRET_KEY must be set in production")
+        if self.app_env == "production":
+            if not self.secret_key:
+                raise ValueError("SECRET_KEY must be set in production")
+            if not self.encryption_key:
+                raise ValueError("ENCRYPTION_KEY must be set in production (32-byte hex for AES-256-GCM)")
         return self
 
     @property

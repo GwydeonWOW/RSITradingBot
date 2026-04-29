@@ -7,21 +7,47 @@ and other on-chain interactions.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from eth_account import Account
+from eth_account.messages import encode_structured_data
+from eth_hash.auto import keccak as keccak256
+
 logger = logging.getLogger(__name__)
+
+PHANTOM_GAS = 2_000_000
+PHANTOM_GAS_PRICE = 0
+
+EIP712_DOMAIN_TYPES = [
+    {"name": "name", "type": "string"},
+    {"name": "version", "type": "uint32"},
+    {"name": "chainId", "type": "uint256"},
+]
+
+AGENT_TYPES = [
+    {"name": "source", "type": "string"},
+    {"name": "connectionId", "type": "bytes32"},
+]
 
 
 @dataclass(frozen=True)
 class SignedOrder:
     """A signed order ready for submission to Hyperliquid."""
 
-    signature: str
+    signature: Dict[str, str]
+    action: Dict[str, Any]
+    payload: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SignedAction:
+    """A signed action (non-order) ready for submission."""
+
+    signature: Dict[str, str]
     action: Dict[str, Any]
     payload: Dict[str, Any]
 
@@ -29,23 +55,12 @@ class SignedOrder:
 class HyperliquidSigner:
     """Signs orders and actions for Hyperliquid using EIP-712.
 
-    NOTE: This is a simplified implementation. In production, use
-    the official Hyperliquid Python SDK or ethers.js for proper
-    EIP-712 typed-data signing with the correct domain separator.
-
     Usage:
         signer = HyperliquidSigner(private_key="0x...")
         signed = signer.sign_order(
             symbol="BTC", side="buy", size=0.01, price=50000.0
         )
     """
-
-    # Hyperliquid EIP-712 domain
-    DOMAIN = {
-        "name": "Exchange",
-        "version": "1",
-        "chainId": 421614,  # Arbitrum testnet; mainnet = 42161
-    }
 
     def __init__(
         self,
@@ -58,11 +73,7 @@ class HyperliquidSigner:
         self._account_address = account_address or ""
         self._vault_address = vault_address
         self._network = network
-
-        if network == "mainnet":
-            self.DOMAIN["chainId"] = 42161
-        else:
-            self.DOMAIN["chainId"] = 421614
+        self._chain_id = 42161 if network == "mainnet" else 421614
 
     @property
     def account_address(self) -> str:
@@ -74,29 +85,16 @@ class HyperliquidSigner:
         side: str,
         size: float,
         price: Optional[float] = None,
-        order_type: str = "Ioc",  # Ioc, Gtc, Alo
+        order_type: str = "Ioc",
         reduce_only: bool = False,
         leverage: int = 1,
     ) -> SignedOrder:
-        """Sign a place-order action.
-
-        Args:
-            symbol: Asset symbol (e.g. "BTC").
-            side: "buy" or "sell".
-            size: Order size in base currency.
-            price: Limit price. None for market orders.
-            order_type: "Ioc" (Immediate or Cancel), "Gtc" (Good til Cancel), "Alo" (Add Liquidity Only).
-            reduce_only: Only reduce existing position.
-            leverage: Leverage for the position.
-
-        Returns:
-            SignedOrder with signature and action payload.
-        """
+        """Sign a place-order action."""
         action = {
             "type": "order",
             "orders": [
                 {
-                    "a": 0,  # asset index, resolved by symbol -> index mapping
+                    "a": 0,
                     "b": side == "buy",
                     "p": str(price) if price else "0",
                     "s": str(size),
@@ -110,37 +108,23 @@ class HyperliquidSigner:
         if self._vault_address:
             action["vaultAddress"] = self._vault_address
 
-        payload = {
-            "action": action,
-            "signature": self._sign_action(action),
-            "nonce": int(time.time() * 1000),
-        }
+        nonce = int(time.time() * 1000)
+        signature = self._sign_action(action)
+        payload = {"action": action, "signature": signature, "nonce": nonce}
 
-        return SignedOrder(
-            signature=payload["signature"],
-            action=action,
-            payload=payload,
-        )
+        return SignedOrder(signature=signature, action=action, payload=payload)
 
     def sign_cancel(
         self,
         symbol: str,
         order_id: str,
     ) -> SignedOrder:
-        """Sign a cancel-order action.
-
-        Args:
-            symbol: Asset symbol.
-            order_id: Venue-assigned order ID to cancel.
-
-        Returns:
-            SignedOrder with cancel action.
-        """
+        """Sign a cancel-order action."""
         action = {
             "type": "cancel",
             "cancels": [
                 {
-                    "a": 0,  # asset index
+                    "a": 0,
                     "o": int(order_id),
                 }
             ],
@@ -149,17 +133,11 @@ class HyperliquidSigner:
         if self._vault_address:
             action["vaultAddress"] = self._vault_address
 
-        payload = {
-            "action": action,
-            "signature": self._sign_action(action),
-            "nonce": int(time.time() * 1000),
-        }
+        nonce = int(time.time() * 1000)
+        signature = self._sign_action(action)
+        payload = {"action": action, "signature": signature, "nonce": nonce}
 
-        return SignedOrder(
-            signature=payload["signature"],
-            action=action,
-            payload=payload,
-        )
+        return SignedOrder(signature=signature, action=action, payload=payload)
 
     def sign_modify_leverage(
         self,
@@ -167,19 +145,10 @@ class HyperliquidSigner:
         leverage: int,
         is_cross: bool = False,
     ) -> SignedAction:
-        """Sign a leverage modification action.
-
-        Args:
-            symbol: Asset symbol.
-            leverage: Target leverage.
-            is_cross: True for cross margin, False for isolated.
-
-        Returns:
-            SignedAction with leverage modification.
-        """
+        """Sign a leverage modification action."""
         action = {
             "type": "updateLeverage",
-            "asset": 0,  # resolved by symbol
+            "asset": 0,
             "isCross": is_cross,
             "leverage": leverage,
         }
@@ -187,44 +156,43 @@ class HyperliquidSigner:
         if self._vault_address:
             action["vaultAddress"] = self._vault_address
 
-        payload = {
-            "action": action,
-            "signature": self._sign_action(action),
-            "nonce": int(time.time() * 1000),
-        }
+        nonce = int(time.time() * 1000)
+        signature = self._sign_action(action)
+        payload = {"action": action, "signature": signature, "nonce": nonce}
 
-        return SignedAction(
-            signature=payload["signature"],
-            action=action,
-            payload=payload,
-        )
+        return SignedAction(signature=signature, action=action, payload=payload)
 
     def _sign_action(self, action: Dict[str, Any]) -> Dict[str, str]:
-        """Sign an action using EIP-712 typed data.
+        """Sign an action using EIP-712 typed data for Hyperliquid.
 
-        In production, this would use web3.py or a hardware wallet
-        to produce a proper secp256k1 signature. This stub returns
-        a placeholder structure.
+        The action is hashed with phantom gas fields, wrapped in an
+        Agent EIP-712 struct, and signed with secp256k1.
         """
-        # Placeholder: in production, use proper EIP-712 signing
-        # from web3 import Web3
-        # w3 = Web3()
-        # structured = self._build_eip712_message(action)
-        # signed = w3.eth.account.sign_typed_data(self._private_key, structured)
-        # return {"r": hex(signed.r), "s": hex(signed.s), "v": signed.v}
+        action_with_gas = dict(action)
+        action_with_gas["gas"] = PHANTOM_GAS
+        action_with_gas["gasPrice"] = PHANTOM_GAS_PRICE
 
-        action_hash = hashlib.sha256(json.dumps(action, sort_keys=True).encode()).hexdigest()
-        return {
-            "r": f"0x{action_hash[:64]}",
-            "s": f"0x{'0' * 63}1",
-            "v": 28,
+        action_json = json.dumps(action_with_gas, separators=(",", ":")).encode()
+        action_hash = keccak256(action_json)
+
+        structured_data = {
+            "domain": {
+                "name": "Exchange",
+                "version": 1,
+                "chainId": self._chain_id,
+            },
+            "types": {
+                "EIP712Domain": EIP712_DOMAIN_TYPES,
+                "Agent": AGENT_TYPES,
+            },
+            "primaryType": "Agent",
+            "message": {
+                "source": "a",
+                "connectionId": action_hash,
+            },
         }
 
+        encoded = encode_structured_data(structured_data)
+        signed = Account.sign_message(encoded, self._private_key)
 
-@dataclass(frozen=True)
-class SignedAction:
-    """A signed action (non-order) ready for submission."""
-
-    signature: Dict[str, str]
-    action: Dict[str, Any]
-    payload: Dict[str, Any]
+        return {"r": hex(signed.r), "s": hex(signed.s), "v": signed.v}

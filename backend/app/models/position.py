@@ -10,7 +10,7 @@ from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Boolean, En
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 
 
 class PositionSide(str, PyEnum):
@@ -52,6 +52,6 @@ class Position(Base):
     partial_exited: Mapped[bool] = mapped_column(Boolean, default=False)
     be_moved: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    closed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

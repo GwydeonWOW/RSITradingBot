@@ -10,7 +10,7 @@ from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 
 
 class OrderSide(str, PyEnum):
@@ -69,8 +69,8 @@ class Order(Base):
     take_profit: Mapped[float] = mapped_column(Float, nullable=True)
 
     # Timing
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     filled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 

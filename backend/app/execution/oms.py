@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 import uuid
@@ -77,8 +77,8 @@ class OMSOrder:
     stop_price: Optional[float] = None
 
     strategy_id: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_terminal(self) -> bool:
@@ -178,7 +178,7 @@ class OrderManagementSystem:
 
         old_status = order.status
         order.status = new_status
-        order.updated_at = datetime.utcnow()
+        order.updated_at = datetime.now(timezone.utc)
 
         if venue_order_id is not None:
             order.venue_order_id = venue_order_id

@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import get_current_user
+from app.core.crypto import decrypt_private_key
+from app.dependencies import get_db
+from app.execution.reconciler import Reconciler
 from app.models.user import User
+from app.models.wallet import Wallet
 from app.services.order_service import OrderService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_order_service(user: User) -> OrderService:
@@ -127,32 +137,109 @@ async def list_orders(
     }
 
 
+async def _fetch_venue_orders(agent_address: str) -> Dict[str, Dict]:
+    """Fetch open orders from Hyperliquid for an agent wallet."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "openOrders", "user": agent_address},
+            )
+            resp.raise_for_status()
+            orders = resp.json()
+            return {
+                str(o.get("oid", "")): {
+                    "status": "open",
+                    "filled_size": float(o.get("sz", 0)),
+                }
+                for o in orders
+            }
+    except Exception as exc:
+        logger.error("Failed to fetch venue orders for %s: %s", agent_address, exc)
+        return {}
+
+
+async def _fetch_venue_positions(agent_address: str) -> Dict[str, Dict]:
+    """Fetch open positions from Hyperliquid for an agent wallet."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "clearinghouseState", "user": agent_address},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            asset_positions = data.get("assetPositions", [])
+            result = {}
+            for ap in asset_positions:
+                pos = ap.get("position", {})
+                coin = pos.get("coin", "")
+                if coin:
+                    result[coin] = {
+                        "size": float(pos.get("szi", 0)),
+                        "entry_price": float(pos.get("entryPx", 0)),
+                    }
+            return result
+    except Exception as exc:
+        logger.error("Failed to fetch venue positions for %s: %s", agent_address, exc)
+        return {}
+
+
 @router.post("/reconcile")
 async def reconcile_orders(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ReconcileResponse:
     """Trigger reconciliation between local and venue state.
 
-    Compares local order and position state with the latest
-    data from Hyperliquid.
+    Fetches current state from Hyperliquid and compares with local OMS state.
     """
-    from app.execution.reconciler import Reconciler
-
     reconciler = Reconciler()
-    # In production, fetch venue state from Hyperliquid API here
-    result = reconciler.reconcile_orders(
-        local_orders={},
-        venue_orders={},
+
+    # Build local state from OMS
+    svc = _get_order_service(current_user)
+    active_orders = svc.get_active_orders()
+    local_orders = {
+        o.id: {"status": o.status.value, "filled_size": o.filled_size}
+        for o in active_orders
+    }
+
+    # Fetch active wallet for venue state
+    wallet_result = await db.execute(
+        select(Wallet).where(
+            Wallet.user_id == current_user.id,
+            Wallet.is_active.is_(True),
+        ).limit(1)
+    )
+    wallet = wallet_result.scalar_one_or_none()
+
+    venue_orders: Dict[str, Dict] = {}
+    venue_positions: Dict[str, Dict] = {}
+
+    if wallet:
+        venue_orders = await _fetch_venue_orders(wallet.agent_address)
+        venue_positions = await _fetch_venue_positions(wallet.agent_address)
+
+    order_result = reconciler.reconcile_orders(
+        local_orders=local_orders,
+        venue_orders=venue_orders,
     )
 
     return ReconcileResponse(
-        is_clean=result.is_clean,
-        order_discrepancies=len(result.order_discrepancies),
-        position_discrepancies=len(result.position_discrepancies),
+        is_clean=order_result.is_clean,
+        order_discrepancies=len(order_result.order_discrepancies),
+        position_discrepancies=len(order_result.position_discrepancies),
         details={
             "orders": [
-                {"order_id": d.order_id, "type": d.discrepancy_type}
-                for d in result.order_discrepancies
+                {
+                    "order_id": d.order_id,
+                    "local_status": d.local_status,
+                    "venue_status": d.venue_status,
+                    "type": d.discrepancy_type,
+                }
+                for d in order_result.order_discrepancies
             ],
+            "local_active_orders": len(local_orders),
+            "venue_open_orders": len(venue_orders),
         },
     )

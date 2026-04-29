@@ -31,7 +31,7 @@ class ConnectWalletRequest(BaseModel):
 
 
 class WalletResponse(BaseModel):
-    wallet_id: str
+    id: str
     label: str
     master_address: str
     agent_address: str
@@ -63,7 +63,7 @@ async def connect_wallet(
     await db.flush()
 
     return WalletResponse(
-        wallet_id=str(wallet.id),
+        id=str(w.id),
         label=wallet.label,
         master_address=wallet.master_address,
         agent_address=wallet.agent_address,

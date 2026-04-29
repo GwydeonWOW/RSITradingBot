@@ -10,7 +10,7 @@ from sqlalchemy import String, DateTime, Float, ForeignKey, JSON, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.user import Base
+from app.models.user import Base, _utcnow
 
 
 class LedgerEntryType(str, PyEnum):
@@ -41,4 +41,4 @@ class LedgerEntry(Base):
     description: Mapped[str] = mapped_column(String(500), nullable=True)
     entry_metadata: Mapped[dict] = mapped_column("metadata", JSON, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
