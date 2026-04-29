@@ -76,10 +76,8 @@ services:
 
   frontend:
     image: ghcr.io/gwydeonwow/rsi-frontend:latest
-    environment:
-      - SERVICE_URL_FRONTEND_80
-    expose:
-      - "80"
+    ports:
+      - '8080:80'
     depends_on:
       backend:
         condition: service_healthy
