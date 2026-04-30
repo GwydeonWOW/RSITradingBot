@@ -27,6 +27,7 @@ from app.core.signal import SignalDetector, SignalStage, SignalType
 from app.dependencies import get_db_ctx
 from app.execution.signer import HyperliquidSigner
 from app.models.bot_state import BotState
+from app.models.bot_log import BotLog
 from app.models.order import Order, OrderSide, OrderStatus, OrderType
 from app.models.position import Position, PositionSide, PositionStatus
 from app.models.user_settings import UserSettings
@@ -45,20 +46,29 @@ class BotEngine:
         self._task: Optional[asyncio.Task] = None
         self._detectors: Dict[uuid.UUID, SignalDetector] = {}
         self._running = False
+        self._enabled = False  # must be explicitly started
 
     @property
     def running(self) -> bool:
         return self._running
 
     async def start(self) -> None:
+        """Called on app startup — loads asset indices but doesn't auto-start the loop."""
+        await _load_asset_indices()
+        logger.info("BotEngine initialized (asset indices loaded)")
+
+    async def start_bot(self) -> None:
+        """Start the trading loop (user action)."""
         if self._running:
             return
+        self._enabled = True
         self._running = True
-        await _load_asset_indices()
         self._task = asyncio.create_task(self._run_loop())
-        logger.info("BotEngine started")
+        logger.info("BotEngine trading loop started")
 
-    async def stop(self) -> None:
+    async def stop_bot(self) -> None:
+        """Stop the trading loop (user action)."""
+        self._enabled = False
         self._running = False
         if self._task:
             self._task.cancel()
@@ -66,7 +76,11 @@ class BotEngine:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("BotEngine stopped")
+        logger.info("BotEngine trading loop stopped")
+
+    async def shutdown(self) -> None:
+        """Called on app shutdown."""
+        await self.stop_bot()
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -165,11 +179,25 @@ class BotEngine:
         # Persist detector state
         _save_detector_state(state, detector)
 
+        # Log cycle decision
+        await _log(
+            db, user_id, level="info",
+            message=f"Regime={regime.value} RSI4H={rsi_4h:.1f} RSI1H={rsi_1h:.1f} Price=${price:.0f} Stage={detector.state.stage.value} Signal={detector.state.signal_type.value}",
+            symbol=symbol, regime=regime.value, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
+            price=price, signal_stage=detector.state.stage.value, signal_type=detector.state.signal_type.value,
+        )
+
         # If confirmed signal → place order
         if signal.stage == SignalStage.CONFIRMED and signal.signal_type != SignalType.NONE:
             # Check no existing open position
             existing = await _get_open_position(db, user_id, symbol)
             if existing is None:
+                await _log(
+                    db, user_id, level="signal",
+                    message=f"SIGNAL CONFIRMED: {signal.signal_type.value.upper()} at ${price:.0f} — placing order",
+                    symbol=symbol, regime=regime.value, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
+                    price=price, signal_stage="confirmed", signal_type=signal.signal_type.value,
+                )
                 await self._place_entry(
                     db=db, wallet=wallet, user_settings=user_settings,
                     symbol=symbol, signal=signal, price=price,
@@ -353,6 +381,9 @@ class BotEngine:
         position.status = PositionStatus.CLOSED
         position.exit_price = current_price
         position.closed_at = datetime.now(timezone.utc)
+        await _log(db, wallet.user_id, level="exit",
+            message=f"EXIT {position.symbol} {position.side.value}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
+            symbol=position.symbol, price=current_price)
         if position.entry_price > 0:
             if position.side == PositionSide.LONG:
                 position.realized_pnl = (current_price - position.entry_price) * position.size
@@ -375,6 +406,38 @@ class BotEngine:
 
 
 # ─── Helper functions ───────────────────────────────────────────
+
+
+async def _log(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    level: str,
+    message: str,
+    symbol: str = "BTC",
+    regime: Optional[str] = None,
+    rsi_4h: Optional[float] = None,
+    rsi_1h: Optional[float] = None,
+    price: Optional[float] = None,
+    signal_stage: Optional[str] = None,
+    signal_type: Optional[str] = None,
+) -> None:
+    entry = BotLog(
+        user_id=user_id,
+        level=level,
+        message=message,
+        symbol=symbol,
+        regime=regime,
+        rsi_4h=rsi_4h,
+        rsi_1h=rsi_1h,
+        price=price,
+        signal_stage=signal_stage,
+        signal_type=signal_type,
+    )
+    db.add(entry)
+    try:
+        await db.flush()
+    except Exception:
+        pass
 
 
 async def _load_asset_indices() -> None:

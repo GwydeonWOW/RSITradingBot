@@ -148,3 +148,71 @@ async def get_bot_status(
         open_positions=open_positions,
         last_error=state.last_error,
     )
+
+
+@router.post("/bot-start")
+async def start_bot(current_user: User = Depends(get_current_user)) -> Dict[str, str]:
+    from app.main import bot_engine
+    await bot_engine.start_bot()
+    return {"status": "started"}
+
+
+@router.post("/bot-stop")
+async def stop_bot(current_user: User = Depends(get_current_user)) -> Dict[str, str]:
+    from app.main import bot_engine
+    await bot_engine.stop_bot()
+    return {"status": "stopped"}
+
+
+class BotLogEntry(BaseModel):
+    id: str
+    level: str
+    message: str
+    symbol: str
+    regime: Optional[str] = None
+    rsi_4h: Optional[float] = None
+    rsi_1h: Optional[float] = None
+    price: Optional[float] = None
+    signal_stage: Optional[str] = None
+    signal_type: Optional[str] = None
+    created_at: str
+
+
+class BotLogResponse(BaseModel):
+    logs: List[BotLogEntry]
+    count: int
+
+
+@router.get("/bot-logs", response_model=BotLogResponse)
+async def get_bot_logs(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BotLogResponse:
+    from app.models.bot_log import BotLog
+    result = await db.execute(
+        select(BotLog)
+        .where(BotLog.user_id == current_user.id)
+        .order_by(BotLog.created_at.desc())
+        .limit(min(limit, 200))
+    )
+    logs = result.scalars().all()
+    return BotLogResponse(
+        logs=[
+            BotLogEntry(
+                id=str(l.id),
+                level=l.level,
+                message=l.message,
+                symbol=l.symbol,
+                regime=l.regime,
+                rsi_4h=l.rsi_4h,
+                rsi_1h=l.rsi_1h,
+                price=l.price,
+                signal_stage=l.signal_stage,
+                signal_type=l.signal_type,
+                created_at=l.created_at.isoformat() if l.created_at else "",
+            )
+            for l in logs
+        ],
+        count=len(logs),
+    )

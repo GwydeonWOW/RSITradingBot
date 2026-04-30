@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
     await bot_engine.start()
     yield
-    await bot_engine.stop()
+    await bot_engine.shutdown()
     logger.info("Shutting down %s", settings.app_name)
 
 

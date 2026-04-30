@@ -11,6 +11,7 @@ from app.models.ledger import LedgerEntry
 from app.models.backtest import Backtest
 from app.models.user_settings import UserSettings
 from app.models.bot_state import BotState
+from app.models.bot_log import BotLog
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "Backtest",
     "UserSettings",
     "BotState",
+    "BotLog",
 ]

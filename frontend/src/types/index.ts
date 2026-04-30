@@ -151,6 +151,25 @@ export interface BotStatusResponse {
   last_error: string | null;
 }
 
+export interface BotLogEntry {
+  id: string;
+  level: string;
+  message: string;
+  symbol: string;
+  regime: string | null;
+  rsi_4h: number | null;
+  rsi_1h: number | null;
+  price: number | null;
+  signal_stage: string | null;
+  signal_type: string | null;
+  created_at: string;
+}
+
+export interface BotLogResponse {
+  logs: BotLogEntry[];
+  count: number;
+}
+
 export interface SignalData {
   signal_type: SignalType;
   stage: SignalStage;
