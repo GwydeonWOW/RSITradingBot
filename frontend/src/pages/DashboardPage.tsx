@@ -46,29 +46,22 @@ export function DashboardPage() {
           {hasWallet && balance ? (
             <div className="space-y-3">
               <div className="bg-gray-800/50 rounded-lg p-3">
-                <span className="text-xs text-gray-500 uppercase">Perp Account</span>
+                <span className="text-xs text-gray-500 uppercase">Account Value</span>
                 <span className="block text-lg font-semibold text-white font-mono">
-                  ${balance.account_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ${balance.portfolio_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
+                {balance.is_unified && (
+                  <span className="text-[10px] text-profit">Unified Account</span>
+                )}
               </div>
-              {balance.spot_usdc > 0 && (
-                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
-                  <span className="text-xs text-blue-400 uppercase">Spot USDC</span>
-                  <span className="block text-sm font-semibold text-blue-300 font-mono">
-                    ${balance.spot_usdc.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-              {balance.account_value === 0 && balance.spot_usdc > 0 && (
-                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 text-[10px] text-yellow-400 space-y-1">
-                  <div>Your funds are in Spot, not in the Perp trading account.</div>
-                  <div>Transfer USDC from Spot to Perp on Hyperliquid to enable trading.</div>
-                </div>
-              )}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <span className="text-gray-500">Withdrawable</span>
-                  <span className="block text-white font-mono">${balance.withdrawable.toFixed(2)}</span>
+                  <span className="text-gray-500">Perp Margin</span>
+                  <span className="block text-white font-mono">${balance.account_value.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Spot USDC</span>
+                  <span className="block text-white font-mono">${balance.spot_usdc.toFixed(2)}</span>
                 </div>
                 <div>
                   <span className="text-gray-500">Margin Used</span>
@@ -79,10 +72,6 @@ export function DashboardPage() {
                   <span className={`block font-mono ${balance.unrealized_pnl >= 0 ? "text-profit" : "text-loss"}`}>
                     ${balance.unrealized_pnl.toFixed(2)}
                   </span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Total Balance</span>
-                  <span className="block text-white font-mono">${(balance.account_value + balance.spot_usdc).toFixed(2)}</span>
                 </div>
               </div>
             </div>

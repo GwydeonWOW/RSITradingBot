@@ -47,6 +47,8 @@ class BalanceResponse(BaseModel):
     withdrawable: float
     unrealized_pnl: float
     spot_usdc: float
+    is_unified: bool
+    portfolio_value: float
 
 
 class UpdateWalletRequest(BaseModel):
@@ -226,6 +228,20 @@ async def get_wallet_balance(
             )
             spot_resp.raise_for_status()
             spot_data = spot_resp.json()
+
+            abstraction_resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "userAbstraction", "user": query_address},
+            )
+            abstraction_resp.raise_for_status()
+            abstraction = abstraction_resp.json()
+
+            portfolio_resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "portfolio", "user": query_address},
+            )
+            portfolio_resp.raise_for_status()
+            portfolio = portfolio_resp.json()
     except httpx.HTTPError as exc:
         logger.error("Hyperliquid balance lookup failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to fetch balance from Hyperliquid")
@@ -248,6 +264,18 @@ async def get_wallet_balance(
         if bal.get("coin") == "USDC":
             spot_usdc += float(bal.get("total", 0))
 
+    is_unified = abstraction == "unifiedAccount" or abstraction == "portfolioMargin"
+
+    # Portfolio endpoint returns [[period, data], ...] — get allTime account value
+    portfolio_value = 0.0
+    for item in portfolio:
+        period_name, period_data = item
+        if period_name == "allTime":
+            hist = period_data.get("accountValueHistory", [])
+            if hist:
+                portfolio_value = float(hist[-1][1])
+            break
+
     return BalanceResponse(
         queried_address=query_address,
         used_master=used_master,
@@ -257,4 +285,6 @@ async def get_wallet_balance(
         withdrawable=withdrawable,
         unrealized_pnl=unrealized_pnl,
         spot_usdc=spot_usdc,
+        is_unified=is_unified,
+        portfolio_value=portfolio_value,
     )

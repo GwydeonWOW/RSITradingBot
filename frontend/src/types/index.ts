@@ -29,6 +29,8 @@ export interface WalletBalance {
   withdrawable: number;
   unrealized_pnl: number;
   spot_usdc: number;
+  is_unified: boolean;
+  portfolio_value: number;
 }
 
 export interface ConnectWalletRequest {
