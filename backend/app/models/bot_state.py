@@ -14,9 +14,13 @@ from app.models.user import Base, _utcnow
 
 class BotState(Base):
     __tablename__ = "bot_states"
+    __table_args__ = (
+        {"extend_existing": True},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, default="BTC")
 
     regime: Mapped[str] = mapped_column(String(20), default="neutral")
     signal_stage: Mapped[str] = mapped_column(String(20), default="inactive")

@@ -44,7 +44,7 @@ class BotEngine:
 
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
-        self._detectors: Dict[uuid.UUID, SignalDetector] = {}
+        self._detectors: Dict[tuple, SignalDetector] = {}  # (user_id, symbol) → detector
         self._running = False
         self._enabled = False  # must be explicitly started
 
@@ -130,17 +130,38 @@ class BotEngine:
                 message="No user settings found — visit Settings page first", symbol="BTC")
             return
 
-        symbol = user_settings.universe.split(",")[0].strip()
+        symbols = [s.strip() for s in user_settings.universe.split(",") if s.strip()]
 
-        # Load or create bot state
-        state = await _load_bot_state(db, user_id)
+        # Check exits for all open positions across all symbols
+        await self._check_all_exits(db, wallet, user_id, user_settings)
+
+        # Evaluate each symbol in the universe
+        for symbol in symbols:
+            try:
+                await self._evaluate_symbol(db, user_id, wallet, user_settings, symbol)
+            except Exception as exc:
+                logger.error("BotEngine symbol eval error %s/%s: %s", user_id, symbol, exc)
+                await _log(db, user_id, level="error",
+                    message=f"Error evaluating {symbol}: {str(exc)[:200]}", symbol=symbol)
+
+    async def _evaluate_symbol(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        wallet: Wallet,
+        user_settings: UserSettings,
+        symbol: str,
+    ) -> None:
+        # Load or create per-symbol state
+        state = await _load_bot_state(db, user_id, symbol)
 
         # Recover detector from state
-        if user_id not in self._detectors:
+        key = (user_id, symbol)
+        if key not in self._detectors:
             detector = _build_detector(user_settings)
             _restore_detector(detector, state)
-            self._detectors[user_id] = detector
-        detector = self._detectors[user_id]
+            self._detectors[key] = detector
+        detector = self._detectors[key]
 
         # Fetch candles
         closes_4h = await _fetch_candles(symbol, "4h", 120)
@@ -188,19 +209,18 @@ class BotEngine:
         # Log cycle decision
         await _log(
             db, user_id, level="info",
-            message=f"Regime={regime.value} RSI4H={rsi_4h:.1f} RSI1H={rsi_1h:.1f} Price=${price:.0f} Stage={detector.state.stage.value} Signal={detector.state.signal_type.value}",
+            message=f"{symbol}: Regime={regime.value} RSI4H={rsi_4h:.1f} RSI1H={rsi_1h:.1f} Price=${price:.0f} Stage={detector.state.stage.value} Signal={detector.state.signal_type.value}",
             symbol=symbol, regime=regime.value, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
             price=price, signal_stage=detector.state.stage.value, signal_type=detector.state.signal_type.value,
         )
 
         # If confirmed signal → place order
         if signal.stage == SignalStage.CONFIRMED and signal.signal_type != SignalType.NONE:
-            # Check no existing open position
             existing = await _get_open_position(db, user_id, symbol)
             if existing is None:
                 await _log(
                     db, user_id, level="signal",
-                    message=f"SIGNAL CONFIRMED: {signal.signal_type.value.upper()} at ${price:.0f} — placing order",
+                    message=f"SIGNAL CONFIRMED: {symbol} {signal.signal_type.value.upper()} at ${price:.0f} — placing order",
                     symbol=symbol, regime=regime.value, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
                     price=price, signal_stage="confirmed", signal_type=signal.signal_type.value,
                 )
@@ -211,9 +231,6 @@ class BotEngine:
                 )
             else:
                 logger.info("Already have open position for %s %s, skipping signal", user_id, symbol)
-
-        # Check exits
-        await self._check_exits(db, wallet, user_id, user_settings, symbol)
 
         db.add(state)
         await db.flush()
@@ -310,6 +327,76 @@ class BotEngine:
             "Placed %s %s order: size=%s price=%.2f stop=%.2f venue_oid=%s",
             side, symbol, size, price, stop_price, venue_order_id,
         )
+
+    async def _check_all_exits(
+        self,
+        db: AsyncSession,
+        wallet: Wallet,
+        user_id: uuid.UUID,
+        user_settings: UserSettings,
+    ) -> None:
+        """Check exit conditions for all open positions."""
+        positions = await _get_all_open_positions(db, user_id)
+        for position in positions:
+            try:
+                await self._check_exit(db, wallet, user_id, user_settings, position)
+            except Exception as exc:
+                logger.error("Exit check error %s/%s: %s", user_id, position.symbol, exc)
+
+    async def _check_exit(
+        self,
+        db: AsyncSession,
+        wallet: Wallet,
+        user_id: uuid.UUID,
+        user_settings: UserSettings,
+        position: Position,
+    ) -> None:
+        symbol = position.symbol
+        current_price = await _fetch_mid_price(symbol)
+        if not current_price:
+            return
+
+        entry = position.entry_price
+        stop = position.stop_loss or 0
+        side = position.side
+        partial_r = user_settings.rsi_exit_partial_r
+        be_r = user_settings.rsi_exit_breakeven_r
+        max_hours = user_settings.rsi_exit_max_hours
+
+        risk = abs(entry - stop) if stop > 0 else entry * 0.02
+        if risk == 0:
+            return
+
+        pnl_distance = (current_price - entry) if side == "long" else (entry - current_price)
+        r_multiple = pnl_distance / risk
+
+        # Stop loss
+        stop_hit = (side == "long" and current_price <= stop) or (side == "short" and current_price >= stop)
+        if stop_hit:
+            await self._close_position(db, wallet, position, current_price, "stop_loss")
+            return
+
+        # Max hours
+        if position.opened_at:
+            hours_held = (datetime.now(timezone.utc) - position.opened_at).total_seconds() / 3600
+            if hours_held >= max_hours:
+                await self._close_position(db, wallet, position, current_price, "max_hours")
+                return
+
+        # Partial exit
+        if r_multiple >= partial_r and not position.partial_exited:
+            close_size = position.size / 2
+            await self._partial_close(db, wallet, position, current_price, close_size)
+            position.stop_loss = entry
+            position.partial_exited = True
+            await db.flush()
+            return
+
+        # Move stop to breakeven
+        if r_multiple >= be_r and not position.be_moved:
+            position.stop_loss = entry
+            position.be_moved = True
+            await db.flush()
 
     async def _check_exits(
         self,
@@ -583,21 +670,21 @@ def _save_detector_state(state: BotState, detector: SignalDetector) -> None:
     state.rsi_extreme_in_zone = s.rsi_extreme_in_zone
 
 
-async def _load_bot_state(db: AsyncSession, user_id: uuid.UUID) -> BotState:
-    result = await db.execute(select(BotState).where(BotState.user_id == user_id))
+async def _load_bot_state(db: AsyncSession, user_id: uuid.UUID, symbol: str = "BTC") -> BotState:
+    result = await db.execute(select(BotState).where(BotState.user_id == user_id, BotState.symbol == symbol))
     state = result.scalar_one_or_none()
     if state is None:
-        state = BotState(user_id=user_id)
+        state = BotState(user_id=user_id, symbol=symbol)
         db.add(state)
         await db.flush()
     return state
 
 
-async def _save_error(user_id: uuid.UUID, error: str) -> None:
+async def _save_error(user_id: uuid.UUID, error: str, symbol: str = "BTC") -> None:
     """Save error to bot state using its own DB session."""
     try:
         async with get_db_ctx() as db:
-            state = await _load_bot_state(db, user_id)
+            state = await _load_bot_state(db, user_id, symbol)
             state.last_error = error
             state.last_eval_at = datetime.now(timezone.utc)
             await db.flush()
@@ -614,6 +701,16 @@ async def _get_open_position(db: AsyncSession, user_id: uuid.UUID, symbol: str) 
         )
     )
     return result.scalar_one_or_none()
+
+
+async def _get_all_open_positions(db: AsyncSession, user_id: uuid.UUID) -> List[Position]:
+    result = await db.execute(
+        select(Position).where(
+            Position.user_id == user_id,
+            Position.status.in_([PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED]),
+        )
+    )
+    return list(result.scalars().all())
 
 
 def get_bot_status() -> Dict[str, Any]:

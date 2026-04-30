@@ -121,10 +121,13 @@ async def get_bot_status(
     from app.main import bot_engine
 
     try:
+        # Get latest state across all symbols
         result = await db.execute(
             select(BotState).where(BotState.user_id == current_user.id)
+            .order_by(BotState.last_eval_at.desc())
         )
-        state = result.scalar_one_or_none()
+        states = result.scalars().all()
+        latest = states[0] if states else None
 
         pos_result = await db.execute(
             select(Position).where(
@@ -137,20 +140,20 @@ async def get_bot_status(
         logger.error("bot-status DB query failed: %s", exc)
         return BotStatusResponse(running=bot_engine.running)
 
-    if state is None:
+    if latest is None:
         return BotStatusResponse(running=bot_engine.running, open_positions=open_positions)
 
     return BotStatusResponse(
         running=bot_engine.running,
-        regime=state.last_regime,
-        signal_stage=state.signal_stage,
-        signal_type=state.signal_type,
-        rsi_4h=state.last_rsi_4h,
-        rsi_1h=state.last_rsi_1h,
-        last_price=state.last_price,
-        last_eval_at=state.last_eval_at.isoformat() if state.last_eval_at else None,
+        regime=latest.last_regime,
+        signal_stage=latest.signal_stage,
+        signal_type=latest.last_signal_type,
+        rsi_4h=latest.last_rsi_4h,
+        rsi_1h=latest.last_rsi_1h,
+        last_price=latest.last_price,
+        last_eval_at=latest.last_eval_at.isoformat() if latest.last_eval_at else None,
         open_positions=open_positions,
-        last_error=state.last_error,
+        last_error=latest.last_error,
     )
 
 
