@@ -141,6 +141,10 @@ class BotEngine:
                 await self._evaluate_symbol(db, user_id, wallet, user_settings, symbol)
             except Exception as exc:
                 logger.error("BotEngine symbol eval error %s/%s: %s", user_id, symbol, exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
                 await _log(db, user_id, level="error",
                     message=f"Error evaluating {symbol}: {str(exc)[:200]}", symbol=symbol)
 
