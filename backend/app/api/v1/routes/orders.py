@@ -84,7 +84,7 @@ async def submit_order(
 
     return OrderSubmitResponse(
         order_id=order.id,
-        status=order.status.value,
+        status=order.status,
         message="Order created and signed. Awaiting submission to venue.",
     )
 
@@ -104,7 +104,7 @@ async def get_order(
         "venue_order_id": order.venue_order_id,
         "symbol": order.symbol,
         "side": order.side,
-        "status": order.status.value,
+        "status": order.status,
         "size": order.size,
         "filled_size": order.filled_size,
         "remaining": order.remaining_size,
@@ -131,8 +131,8 @@ async def list_orders(
             {
                 "order_id": str(o.id),
                 "symbol": o.symbol,
-                "side": o.side.value,
-                "status": o.status.value,
+                "side": o.side,
+                "status": o.status,
                 "size": o.size,
                 "filled_size": o.filled_size,
             }
@@ -205,7 +205,7 @@ async def reconcile_orders(
     svc = _get_order_service(current_user)
     active_orders = svc.get_active_orders()
     local_orders = {
-        o.id: {"status": o.status.value, "filled_size": o.filled_size}
+        o.id: {"status": o.status, "filled_size": o.filled_size}
         for o in active_orders
     }
 

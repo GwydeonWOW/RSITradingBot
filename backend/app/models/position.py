@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Boolean, Enum
+from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,8 +36,8 @@ class Position(Base):
     order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True)
 
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    side: Mapped[PositionSide] = mapped_column(Enum(PositionSide), nullable=False)
-    status: Mapped[PositionStatus] = mapped_column(Enum(PositionStatus), nullable=False, default=PositionStatus.OPEN)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
 
     size: Mapped[float] = mapped_column(Float, nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)

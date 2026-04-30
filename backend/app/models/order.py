@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Enum
+from sqlalchemy import String, DateTime, Float, Integer, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,9 +49,9 @@ class Order(Base):
     venue_order_id: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
-    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide), nullable=False)
-    order_type: Mapped[OrderType] = mapped_column(Enum(OrderType), nullable=False)
-    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), nullable=False, default=OrderStatus.INTENT)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="intent")
 
     # Price / size
     price: Mapped[float] = mapped_column(Float, nullable=True)

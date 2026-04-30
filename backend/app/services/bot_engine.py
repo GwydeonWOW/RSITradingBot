@@ -327,7 +327,7 @@ class BotEngine:
 
         entry = position.entry_price
         stop = position.stop_loss or 0
-        side = position.side.value
+        side = position.side
         partial_r = user_settings.rsi_exit_partial_r
         be_r = user_settings.rsi_exit_breakeven_r
         max_hours = user_settings.rsi_exit_max_hours
@@ -390,7 +390,7 @@ class BotEngine:
             else:
                 position.realized_pnl = (position.entry_price - current_price) * position.size
         await _log(db, wallet.user_id, level="exit",
-            message=f"EXIT {position.symbol} {position.side.value}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
+            message=f"EXIT {position.symbol} {position.side}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
             symbol=position.symbol, price=current_price)
         await db.flush()
         logger.info("Closed %s position %s: reason=%s price=%.2f", position.symbol, position.id, reason, current_price)
