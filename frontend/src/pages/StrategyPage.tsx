@@ -38,11 +38,18 @@ export function StrategyPage() {
   });
 
   const result = evaluateMutation.data;
-  const signalLogs = (logsData?.logs ?? []).filter(
+
+  // Show signal events, collapsing consecutive duplicate entries (same symbol+stage+type)
+  const allSignalLogs = (logsData?.logs ?? []).filter(
     (l: BotLogEntry) =>
-      (l.signal_stage && (l.signal_stage === "trigger" || l.signal_stage === "confirmed")) ||
-      (l.level === "signal" || l.level === "trade" || l.level === "exit")
+      l.signal_type && l.signal_type !== "none" &&
+      (l.level === "info" || l.level === "signal" || l.level === "trade" || l.level === "exit")
   );
+  const signalLogs = allSignalLogs.filter((l: BotLogEntry, i: number) => {
+    if (i === 0) return true;
+    const prev = allSignalLogs[i - 1]!;
+    return !(prev.symbol === l.symbol && prev.signal_stage === l.signal_stage && prev.signal_type === l.signal_type);
+  });
 
   return (
     <div className="space-y-6">
