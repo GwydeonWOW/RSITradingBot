@@ -39,6 +39,7 @@ class WalletResponse(BaseModel):
 
 
 class BalanceResponse(BaseModel):
+    queried_address: str
     account_value: float
     total_raw_usd: float
     margin_used: float
@@ -213,6 +214,8 @@ async def get_wallet_balance(
         logger.error("Hyperliquid balance lookup failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to fetch balance from Hyperliquid")
 
+    logger.info("Hyperliquid clearinghouseState for %s: %s", query_address, str(data)[:500])
+
     margin_summary = data.get("marginSummary", {})
     account_value = float(margin_summary.get("accountValue", 0))
     total_raw_usd = float(margin_summary.get("totalRawUsd", 0))
@@ -225,6 +228,7 @@ async def get_wallet_balance(
         unrealized_pnl += float(pos.get("unrealizedPnl", 0))
 
     return BalanceResponse(
+        queried_address=query_address,
         account_value=account_value,
         total_raw_usd=total_raw_usd,
         margin_used=margin_used,

@@ -21,6 +21,7 @@ export interface Wallet {
 }
 
 export interface WalletBalance {
+  queried_address: string;
   account_value: number;
   total_raw_usd: number;
   margin_used: number;

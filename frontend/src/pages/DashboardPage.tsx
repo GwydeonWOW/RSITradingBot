@@ -51,6 +51,12 @@ export function DashboardPage() {
                   ${balance.account_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
               </div>
+              {balance.account_value === 0 && (
+                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 text-[10px] text-yellow-400">
+                  Balance is $0. Queried: <span className="font-mono">{balance.queried_address.slice(0, 10)}...{balance.queried_address.slice(-6)}</span>.
+                  Make sure this is your Hyperliquid master account address (the one you log in with), not the API wallet address.
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <span className="text-gray-500">Withdrawable</span>
