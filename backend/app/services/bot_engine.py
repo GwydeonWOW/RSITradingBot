@@ -157,16 +157,13 @@ class BotEngine:
         # Check exits for all open positions across all symbols
         await self._check_all_exits(db, wallet, user_id, user_settings)
 
-        # Evaluate each symbol in the universe
+        # Evaluate each symbol in the universe (each gets its own DB session)
         for symbol in symbols:
             try:
-                await self._evaluate_symbol(db, user_id, wallet, user_settings, symbol)
+                async with get_db_ctx() as sym_db:
+                    await self._evaluate_symbol(sym_db, user_id, wallet, user_settings, symbol)
             except Exception as exc:
                 logger.error("BotEngine symbol eval error %s/%s: %s", user_id, symbol, exc)
-                try:
-                    await db.rollback()
-                except Exception:
-                    pass
                 await _log(db, user_id, level="error",
                     message=f"Error evaluating {symbol}: {str(exc)[:200]}", symbol=symbol)
 
@@ -568,7 +565,8 @@ async def _submit_market_order(
     )
 
     # Set leverage first
-    leverage_action = signer.sign_modify_leverage(symbol, leverage, is_cross=True)
+    asset_idx = _get_asset_index(symbol)
+    leverage_action = signer.sign_modify_leverage(symbol, leverage, is_cross=True, asset_index=asset_idx)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(
@@ -579,13 +577,10 @@ async def _submit_market_order(
         pass  # leverage setting is idempotent, ignore errors
 
     # Sign and submit order
-    asset_idx = _get_asset_index(symbol)
     signed = signer.sign_order(
         symbol=symbol, side=side, size=size, price=None, order_type="Ioc",
+        asset_index=asset_idx,
     )
-
-    # Override asset index in the action
-    signed.action["orders"][0]["a"] = asset_idx
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(

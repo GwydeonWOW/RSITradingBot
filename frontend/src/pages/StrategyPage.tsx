@@ -39,7 +39,9 @@ export function StrategyPage() {
 
   const result = evaluateMutation.data;
   const signalLogs = (logsData?.logs ?? []).filter(
-    (l: BotLogEntry) => l.signal_type && l.signal_type !== "none"
+    (l: BotLogEntry) =>
+      (l.signal_stage && (l.signal_stage === "trigger" || l.signal_stage === "confirmed")) ||
+      (l.level === "signal" || l.level === "trade" || l.level === "exit")
   );
 
   return (
@@ -110,6 +112,9 @@ export function StrategyPage() {
         {bot && bot.signal_stage && bot.signal_stage !== "inactive" && bot.signal_type ? (
           <div className="flex items-center justify-between bg-gray-800/50 rounded-lg p-3">
             <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-white bg-gray-700 px-2 py-0.5 rounded">
+                {bot.symbols?.find(s => s.signal_stage && s.signal_stage !== "inactive")?.symbol ?? "—"}
+              </span>
               <span
                 className={clsx(
                   "text-xs font-bold px-2 py-0.5 rounded",
@@ -148,30 +153,37 @@ export function StrategyPage() {
             </span>
           )}
         </div>
-        {bot && (bot.rsi_4h != null || bot.rsi_1h != null) ? (
-          <div className="flex items-center justify-center gap-8 py-4">
-            <RSIWidget label="4H" value={bot.rsi_4h ?? 0} />
-            <RSIWidget label="1H" value={bot.rsi_1h ?? 0} />
+        {bot && bot.symbols && bot.symbols.length > 0 ? (
+          <div className="space-y-4">
+            {bot.symbols.map((s) => (
+              <div key={s.symbol} className="bg-gray-800/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-white">{s.symbol}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    s.regime === "bullish" ? "text-profit bg-green-900/30" : s.regime === "bearish" ? "text-loss bg-red-900/30" : "text-neutral-accent bg-gray-700/30"
+                  }`}>
+                    {(s.regime ?? "N/A").toUpperCase()}
+                  </span>
+                </div>
+                {(s.rsi_4h != null || s.rsi_1h != null) ? (
+                  <div className="flex items-center justify-center gap-8">
+                    <RSIWidget label="4H" value={s.rsi_4h ?? 0} />
+                    <RSIWidget label="1H" value={s.rsi_1h ?? 0} />
+                  </div>
+                ) : (
+                  <div className="text-center py-2 text-gray-600 text-[10px]">Waiting for data...</div>
+                )}
+                {s.last_price != null && (
+                  <div className="mt-2 text-xs text-gray-500 text-right font-mono">
+                    ${s.last_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         ) : (
           <div className="text-center py-12 text-gray-600 text-xs">
             {bot?.running ? "Waiting for first evaluation cycle..." : "Start the bot to see live RSI data."}
-          </div>
-        )}
-        {bot && (bot.rsi_4h != null || bot.rsi_1h != null) && (
-          <div className="mt-3 pt-3 border-t border-border/50 grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-gray-500">Regime</span>
-              <span className={`block text-sm font-semibold ${bot.regime === "bullish" ? "text-profit" : bot.regime === "bearish" ? "text-loss" : "text-neutral-accent"}`}>
-                {(bot.regime ?? "N/A").toUpperCase()}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-500">Last Price</span>
-              <span className="block text-sm font-mono text-white">
-                {bot.last_price != null ? `$${bot.last_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "N/A"}
-              </span>
-            </div>
           </div>
         )}
       </div>
@@ -189,6 +201,7 @@ export function StrategyPage() {
               <thead>
                 <tr className="text-gray-500 uppercase border-b border-border">
                   <th className="text-left py-2 px-2">Time</th>
+                  <th className="text-left py-2 px-2">Token</th>
                   <th className="text-left py-2 px-2">Type</th>
                   <th className="text-left py-2 px-2">Stage</th>
                   <th className="text-left py-2 px-2">Regime</th>
@@ -203,6 +216,7 @@ export function StrategyPage() {
                     <td className="py-2 px-2 text-gray-400">
                       {new Date(l.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                     </td>
+                    <td className="py-2 px-2 text-white font-semibold">{l.symbol}</td>
                     <td className="py-2 px-2">
                       <span className={l.signal_type === "long" ? "text-profit font-semibold" : "text-loss font-semibold"}>
                         {l.signal_type?.toUpperCase()}

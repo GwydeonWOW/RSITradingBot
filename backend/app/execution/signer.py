@@ -88,13 +88,14 @@ class HyperliquidSigner:
         order_type: str = "Ioc",
         reduce_only: bool = False,
         leverage: int = 1,
+        asset_index: int = 0,
     ) -> SignedOrder:
         """Sign a place-order action."""
         action = {
             "type": "order",
             "orders": [
                 {
-                    "a": 0,
+                    "a": asset_index,
                     "b": side == "buy",
                     "p": str(price) if price else "0",
                     "s": str(size),
@@ -144,11 +145,12 @@ class HyperliquidSigner:
         symbol: str,
         leverage: int,
         is_cross: bool = False,
+        asset_index: int = 0,
     ) -> SignedAction:
         """Sign a leverage modification action."""
         action = {
             "type": "updateLeverage",
-            "asset": 0,
+            "asset": asset_index,
             "isCross": is_cross,
             "leverage": leverage,
         }

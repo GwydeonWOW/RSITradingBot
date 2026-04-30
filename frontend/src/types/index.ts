@@ -138,6 +138,17 @@ export interface SignalEvaluateResponse {
   sizing: { notional: number; contracts: number; leverage: number; risk_amount: number } | null;
 }
 
+export interface SymbolState {
+  symbol: string;
+  regime: string | null;
+  signal_stage: string | null;
+  signal_type: string | null;
+  rsi_4h: number | null;
+  rsi_1h: number | null;
+  last_price: number | null;
+  last_eval_at: string | null;
+}
+
 export interface BotStatusResponse {
   running: boolean;
   regime: string | null;
@@ -149,6 +160,7 @@ export interface BotStatusResponse {
   last_eval_at: string | null;
   open_positions: number;
   last_error: string | null;
+  symbols: SymbolState[];
 }
 
 export interface BotLogEntry {

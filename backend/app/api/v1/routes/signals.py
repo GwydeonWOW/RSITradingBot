@@ -99,6 +99,17 @@ async def evaluate_signal(
     return SignalEvaluateResponse(**result)
 
 
+class SymbolState(BaseModel):
+    symbol: str
+    regime: Optional[str] = None
+    signal_stage: Optional[str] = None
+    signal_type: Optional[str] = None
+    rsi_4h: Optional[float] = None
+    rsi_1h: Optional[float] = None
+    last_price: Optional[float] = None
+    last_eval_at: Optional[str] = None
+
+
 class BotStatusResponse(BaseModel):
     running: bool
     regime: Optional[str] = None
@@ -110,6 +121,7 @@ class BotStatusResponse(BaseModel):
     last_eval_at: Optional[str] = None
     open_positions: int = 0
     last_error: Optional[str] = None
+    symbols: List[SymbolState] = []
 
 
 @router.get("/bot-status", response_model=BotStatusResponse)
@@ -140,8 +152,22 @@ async def get_bot_status(
         logger.error("bot-status DB query failed: %s", exc)
         return BotStatusResponse(running=bot_engine.running)
 
+    symbol_states = [
+        SymbolState(
+            symbol=s.symbol,
+            regime=s.last_regime,
+            signal_stage=s.signal_stage,
+            signal_type=s.last_signal_type,
+            rsi_4h=s.last_rsi_4h,
+            rsi_1h=s.last_rsi_1h,
+            last_price=s.last_price,
+            last_eval_at=s.last_eval_at.isoformat() if s.last_eval_at else None,
+        )
+        for s in states
+    ]
+
     if latest is None:
-        return BotStatusResponse(running=bot_engine.running, open_positions=open_positions)
+        return BotStatusResponse(running=bot_engine.running, open_positions=open_positions, symbols=symbol_states)
 
     return BotStatusResponse(
         running=bot_engine.running,
@@ -154,6 +180,7 @@ async def get_bot_status(
         last_eval_at=latest.last_eval_at.isoformat() if latest.last_eval_at else None,
         open_positions=open_positions,
         last_error=latest.last_error,
+        symbols=symbol_states,
     )
 
 
