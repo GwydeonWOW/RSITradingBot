@@ -46,6 +46,7 @@ class BalanceResponse(BaseModel):
     margin_used: float
     withdrawable: float
     unrealized_pnl: float
+    spot_usdc: float
 
 
 class UpdateWalletRequest(BaseModel):
@@ -212,12 +213,19 @@ async def get_wallet_balance(
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
+            perp_resp = await client.post(
                 f"{settings.hyperliquid_api_url}/info",
                 json={"type": "clearinghouseState", "user": query_address},
             )
-            resp.raise_for_status()
-            data = resp.json()
+            perp_resp.raise_for_status()
+            data = perp_resp.json()
+
+            spot_resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "spotClearinghouseState", "user": query_address},
+            )
+            spot_resp.raise_for_status()
+            spot_data = spot_resp.json()
     except httpx.HTTPError as exc:
         logger.error("Hyperliquid balance lookup failed: %s", exc)
         raise HTTPException(status_code=502, detail="Failed to fetch balance from Hyperliquid")
@@ -235,6 +243,11 @@ async def get_wallet_balance(
         pos = ap.get("position", {})
         unrealized_pnl += float(pos.get("unrealizedPnl", 0))
 
+    spot_usdc = 0.0
+    for bal in spot_data.get("balances", []):
+        if bal.get("coin") == "USDC":
+            spot_usdc += float(bal.get("total", 0))
+
     return BalanceResponse(
         queried_address=query_address,
         used_master=used_master,
@@ -243,4 +256,5 @@ async def get_wallet_balance(
         margin_used=margin_used,
         withdrawable=withdrawable,
         unrealized_pnl=unrealized_pnl,
+        spot_usdc=spot_usdc,
     )

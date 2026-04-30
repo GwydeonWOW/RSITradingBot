@@ -46,16 +46,23 @@ export function DashboardPage() {
           {hasWallet && balance ? (
             <div className="space-y-3">
               <div className="bg-gray-800/50 rounded-lg p-3">
-                <span className="text-xs text-gray-500 uppercase">Account Value</span>
+                <span className="text-xs text-gray-500 uppercase">Perp Account</span>
                 <span className="block text-lg font-semibold text-white font-mono">
                   ${balance.account_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              {balance.account_value === 0 && (
+              {balance.spot_usdc > 0 && (
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
+                  <span className="text-xs text-blue-400 uppercase">Spot USDC</span>
+                  <span className="block text-sm font-semibold text-blue-300 font-mono">
+                    ${balance.spot_usdc.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+              {balance.account_value === 0 && balance.spot_usdc > 0 && (
                 <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 text-[10px] text-yellow-400 space-y-1">
-                  <div>Balance is $0. Queried address: <span className="font-mono">{balance.queried_address}</span></div>
-                  <div>Using: {balance.used_master ? "Account address (master)" : "API wallet address (agent)"} — {balance.used_master ? "correct" : "add your Account Address in Settings for accurate balance"}</div>
-                  <div>Check Coolify backend logs for "Balance query:" to see the raw address being sent to Hyperliquid.</div>
+                  <div>Your funds are in Spot, not in the Perp trading account.</div>
+                  <div>Transfer USDC from Spot to Perp on Hyperliquid to enable trading.</div>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -74,8 +81,8 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Raw USD</span>
-                  <span className="block text-white font-mono">${balance.total_raw_usd.toFixed(2)}</span>
+                  <span className="text-gray-500">Total Balance</span>
+                  <span className="block text-white font-mono">${(balance.account_value + balance.spot_usdc).toFixed(2)}</span>
                 </div>
               </div>
             </div>

@@ -27,10 +27,6 @@ export function StrategyPage() {
     mutationFn: () =>
       evaluateSignal({
         symbol,
-        closes_4h: [],
-        closes_1h: [],
-        price_15m: 0,
-        is_bullish_15m: true,
       }),
   });
 

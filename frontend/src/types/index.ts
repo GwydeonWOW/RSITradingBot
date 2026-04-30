@@ -28,6 +28,7 @@ export interface WalletBalance {
   margin_used: number;
   withdrawable: number;
   unrealized_pnl: number;
+  spot_usdc: number;
 }
 
 export interface ConnectWalletRequest {
@@ -124,11 +125,7 @@ export interface BacktestListResponse {
 }
 
 export interface SignalEvaluateRequest {
-  symbol: string;
-  closes_4h: number[];
-  closes_1h: number[];
-  price_15m: number;
-  is_bullish_15m: boolean;
+  symbol?: string;
 }
 
 export interface SignalEvaluateResponse {
