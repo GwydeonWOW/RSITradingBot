@@ -8,10 +8,12 @@ Also manages exits (stop loss, R-targets, max holding time).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -38,6 +40,22 @@ logger = logging.getLogger(__name__)
 # Asset index cache: {"BTC": 0, "ETH": 1, ...}
 _asset_index_cache: Dict[str, int] = {}
 
+_PERSIST_FILE = Path("/tmp/bot_enabled.json")
+
+
+def _persist_enabled(enabled: bool) -> None:
+    try:
+        _PERSIST_FILE.write_text(json.dumps({"enabled": enabled}))
+    except Exception:
+        pass
+
+
+def _load_persisted_enabled() -> bool:
+    try:
+        return json.loads(_PERSIST_FILE.read_text()).get("enabled", False)
+    except Exception:
+        return False
+
 
 class BotEngine:
     """Background bot engine that runs the RSI strategy for all users."""
@@ -46,36 +64,40 @@ class BotEngine:
         self._task: Optional[asyncio.Task] = None
         self._detectors: Dict[tuple, SignalDetector] = {}  # (user_id, symbol) → detector
         self._running = False
-        self._enabled = False  # must be explicitly started
 
     @property
     def running(self) -> bool:
-        return self._running
+        return self._running and self._task is not None and not self._task.done()
 
     async def start(self) -> None:
-        """Called on app startup — loads asset indices but doesn't auto-start the loop."""
+        """Called on app startup. Resumes the bot if it was running before restart."""
         await _load_asset_indices()
-        logger.info("BotEngine initialized (asset indices loaded)")
+        if _load_persisted_enabled():
+            logger.info("BotEngine: resuming (was enabled before restart)")
+            await self.start_bot()
+        else:
+            logger.info("BotEngine initialized (stopped)")
 
     async def start_bot(self) -> None:
-        """Start the trading loop (user action)."""
-        if self._running:
+        """Start the trading loop."""
+        if self.running:
             return
-        self._enabled = True
         self._running = True
+        _persist_enabled(True)
         self._task = asyncio.create_task(self._run_loop())
         logger.info("BotEngine trading loop started")
 
     async def stop_bot(self) -> None:
-        """Stop the trading loop (user action)."""
-        self._enabled = False
+        """Stop the trading loop."""
         self._running = False
-        if self._task:
+        _persist_enabled(False)
+        if self._task and not self._task.done():
             self._task.cancel()
             try:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        self._task = None
         logger.info("BotEngine trading loop stopped")
 
     async def shutdown(self) -> None:
@@ -402,72 +424,6 @@ class BotEngine:
             position.be_moved = True
             await db.flush()
 
-    async def _check_exits(
-        self,
-        db: AsyncSession,
-        wallet: Wallet,
-        user_id: uuid.UUID,
-        user_settings: UserSettings,
-        symbol: str,
-    ) -> None:
-        position = await _get_open_position(db, user_id, symbol)
-        if position is None:
-            return
-
-        # Fetch current price
-        mid_prices = await _fetch_mid_price(symbol)
-        if not mid_prices:
-            return
-        current_price = mid_prices
-
-        entry = position.entry_price
-        stop = position.stop_loss or 0
-        side = position.side
-        partial_r = user_settings.rsi_exit_partial_r
-        be_r = user_settings.rsi_exit_breakeven_r
-        max_hours = user_settings.rsi_exit_max_hours
-
-        # Calculate R-multiple
-        risk = abs(entry - stop) if stop > 0 else entry * 0.02
-        if risk == 0:
-            return
-
-        if side == "long":
-            pnl_distance = current_price - entry
-        else:
-            pnl_distance = entry - current_price
-
-        r_multiple = pnl_distance / risk
-
-        # Check stop loss hit
-        stop_hit = (side == "long" and current_price <= stop) or (side == "short" and current_price >= stop)
-        if stop_hit:
-            await self._close_position(db, wallet, position, current_price, "stop_loss")
-            return
-
-        # Check max hours
-        if position.opened_at:
-            hours_held = (datetime.now(timezone.utc) - position.opened_at).total_seconds() / 3600
-            if hours_held >= max_hours:
-                await self._close_position(db, wallet, position, current_price, "max_hours")
-                return
-
-        # Check partial exit at partial_r
-        if r_multiple >= partial_r and not position.partial_exited:
-            close_size = position.size / 2
-            await self._partial_close(db, wallet, position, current_price, close_size)
-            # Move stop to breakeven
-            position.stop_loss = entry
-            position.partial_exited = True
-            await db.flush()
-            return
-
-        # Check move stop to breakeven at be_r
-        if r_multiple >= be_r and not position.be_moved:
-            position.stop_loss = entry
-            position.be_moved = True
-            await db.flush()
-
     async def _close_position(
         self, db: AsyncSession, wallet: Wallet, position: Position, current_price: float, reason: str,
     ) -> None:
@@ -715,10 +671,3 @@ async def _get_all_open_positions(db: AsyncSession, user_id: uuid.UUID) -> List[
         )
     )
     return list(result.scalars().all())
-
-
-def get_bot_status() -> Dict[str, Any]:
-    return {
-        "running": BotEngine._instance._running if hasattr(BotEngine, "_instance") else False,
-        "asset_indices_loaded": len(_asset_index_cache),
-    }

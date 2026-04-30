@@ -26,11 +26,17 @@ export function DashboardPage() {
   const startMut = useMutation({
     mutationFn: startBot,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["botStatus"] }),
+    onError: () => qc.invalidateQueries({ queryKey: ["botStatus"] }),
   });
   const stopMut = useMutation({
     mutationFn: stopBot,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["botStatus"] }),
+    onError: () => qc.invalidateQueries({ queryKey: ["botStatus"] }),
   });
+
+  // Optimistic state: show intended state during mutation
+  const isPending = startMut.isPending || stopMut.isPending;
+  const displayRunning = startMut.isPending ? true : stopMut.isPending ? false : !!bot?.running;
 
   const orders = ordersData?.orders ?? [];
   const hasWallet = (wallets?.length ?? 0) > 0;
@@ -92,26 +98,24 @@ export function DashboardPage() {
         <div className="xl:col-span-1 bg-surface rounded-xl border border-border p-4 space-y-3">
           <h2 className="text-sm font-semibold text-gray-300">Bot Control</h2>
           <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${bot?.running ? "bg-profit animate-pulse" : "bg-gray-600"}`} />
-            <span className="text-xs text-gray-400">{bot?.running ? "Running" : "Stopped"}</span>
+            <div className={`w-3 h-3 rounded-full ${displayRunning ? "bg-profit animate-pulse" : "bg-gray-600"}`} />
+            <span className="text-xs text-gray-400">
+              {isPending ? (startMut.isPending ? "Starting..." : "Stopping...") : (displayRunning ? "Running" : "Stopped")}
+            </span>
           </div>
-          {bot?.running ? (
-            <button
-              onClick={() => stopMut.mutate()}
-              disabled={stopMut.isPending}
-              className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
-            >
-              {stopMut.isPending ? "Stopping..." : "Stop Bot"}
-            </button>
-          ) : (
-            <button
-              onClick={() => startMut.mutate()}
-              disabled={startMut.isPending || !hasWallet}
-              className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
-            >
-              {startMut.isPending ? "Starting..." : "Start Bot"}
-            </button>
-          )}
+          <button
+            onClick={() => displayRunning ? stopMut.mutate() : startMut.mutate()}
+            disabled={isPending || (!displayRunning && !hasWallet)}
+            className={`w-full py-2 text-white text-xs font-semibold rounded-lg disabled:opacity-50 ${
+              displayRunning
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
+            {isPending
+              ? (startMut.isPending ? "Starting..." : "Stopping...")
+              : (displayRunning ? "Stop Bot" : "Start Bot")}
+          </button>
           {bot?.last_eval_at && (
             <div className="text-[10px] text-gray-500">
               Last eval: {new Date(bot.last_eval_at).toLocaleTimeString()}
