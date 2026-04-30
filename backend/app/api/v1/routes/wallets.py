@@ -40,6 +40,7 @@ class WalletResponse(BaseModel):
 
 class BalanceResponse(BaseModel):
     queried_address: str
+    used_master: bool
     account_value: float
     total_raw_usd: float
     margin_used: float
@@ -57,7 +58,8 @@ def _query_address(wallet: Wallet) -> str:
     Per Hyperliquid docs, queries should use the master account address.
     Agent address queries return empty results.
     """
-    return wallet.master_address or wallet.agent_address
+    addr = wallet.master_address or wallet.agent_address
+    return addr.strip()
 
 
 @router.post("", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
@@ -72,8 +74,8 @@ async def connect_wallet(
     wallet = Wallet(
         user_id=current_user.id,
         label=request.label,
-        master_address=request.master_address,
-        agent_address=request.agent_address,
+        master_address=request.master_address.strip() if request.master_address else None,
+        agent_address=request.agent_address.strip(),
         encrypted_private_key=encrypted,
     )
     db.add(wallet)
@@ -135,7 +137,7 @@ async def update_wallet(
         raise HTTPException(status_code=404, detail="Wallet not found")
 
     if request.master_address is not None:
-        wallet.master_address = request.master_address
+        wallet.master_address = request.master_address.strip()
     await db.flush()
 
     return WalletResponse(
@@ -201,6 +203,12 @@ async def get_wallet_balance(
         raise HTTPException(status_code=404, detail="Wallet not found")
 
     query_address = _query_address(wallet)
+    used_master = wallet.master_address is not None and len(wallet.master_address.strip()) > 0
+
+    logger.info(
+        "Balance query: master_address=%r agent_address=%r using=%s",
+        wallet.master_address, wallet.agent_address, query_address,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -229,6 +237,7 @@ async def get_wallet_balance(
 
     return BalanceResponse(
         queried_address=query_address,
+        used_master=used_master,
         account_value=account_value,
         total_raw_usd=total_raw_usd,
         margin_used=margin_used,

@@ -52,9 +52,10 @@ export function DashboardPage() {
                 </span>
               </div>
               {balance.account_value === 0 && (
-                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 text-[10px] text-yellow-400">
-                  Balance is $0. Queried: <span className="font-mono">{balance.queried_address.slice(0, 10)}...{balance.queried_address.slice(-6)}</span>.
-                  Make sure this is your Hyperliquid master account address (the one you log in with), not the API wallet address.
+                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 text-[10px] text-yellow-400 space-y-1">
+                  <div>Balance is $0. Queried address: <span className="font-mono">{balance.queried_address}</span></div>
+                  <div>Using: {balance.used_master ? "Account address (master)" : "API wallet address (agent)"} — {balance.used_master ? "correct" : "add your Account Address in Settings for accurate balance"}</div>
+                  <div>Check Coolify backend logs for "Balance query:" to see the raw address being sent to Hyperliquid.</div>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2 text-xs">
