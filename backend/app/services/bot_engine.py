@@ -122,6 +122,8 @@ class BotEngine:
         )
         user_settings = settings_result.scalar_one_or_none()
         if not user_settings:
+            await _log(db, user_id, level="error",
+                message="No user settings found — visit Settings page first", symbol="BTC")
             return
 
         symbol = user_settings.universe.split(",")[0].strip()
@@ -381,14 +383,15 @@ class BotEngine:
         position.status = PositionStatus.CLOSED
         position.exit_price = current_price
         position.closed_at = datetime.now(timezone.utc)
-        await _log(db, wallet.user_id, level="exit",
-            message=f"EXIT {position.symbol} {position.side.value}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
-            symbol=position.symbol, price=current_price)
+        # Calculate realized PnL before logging
         if position.entry_price > 0:
             if position.side == PositionSide.LONG:
                 position.realized_pnl = (current_price - position.entry_price) * position.size
             else:
                 position.realized_pnl = (position.entry_price - current_price) * position.size
+        await _log(db, wallet.user_id, level="exit",
+            message=f"EXIT {position.symbol} {position.side.value}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
+            symbol=position.symbol, price=current_price)
         await db.flush()
         logger.info("Closed %s position %s: reason=%s price=%.2f", position.symbol, position.id, reason, current_price)
 

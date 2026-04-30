@@ -120,18 +120,22 @@ async def get_bot_status(
     """Get current bot engine status for the authenticated user."""
     from app.main import bot_engine
 
-    result = await db.execute(
-        select(BotState).where(BotState.user_id == current_user.id)
-    )
-    state = result.scalar_one_or_none()
-
-    pos_result = await db.execute(
-        select(Position).where(
-            Position.user_id == current_user.id,
-            Position.status.in_([PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED]),
+    try:
+        result = await db.execute(
+            select(BotState).where(BotState.user_id == current_user.id)
         )
-    )
-    open_positions = len(pos_result.scalars().all())
+        state = result.scalar_one_or_none()
+
+        pos_result = await db.execute(
+            select(Position).where(
+                Position.user_id == current_user.id,
+                Position.status.in_([PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED]),
+            )
+        )
+        open_positions = len(pos_result.scalars().all())
+    except Exception as exc:
+        logger.error("bot-status DB query failed: %s", exc)
+        return BotStatusResponse(running=bot_engine.running)
 
     if state is None:
         return BotStatusResponse(running=bot_engine.running, open_positions=open_positions)
@@ -153,14 +157,22 @@ async def get_bot_status(
 @router.post("/bot-start")
 async def start_bot(current_user: User = Depends(get_current_user)) -> Dict[str, str]:
     from app.main import bot_engine
-    await bot_engine.start_bot()
+    try:
+        await bot_engine.start_bot()
+    except Exception as exc:
+        logger.error("bot-start failed: %s", exc)
+        return {"status": "error", "detail": str(exc)[:200]}
     return {"status": "started"}
 
 
 @router.post("/bot-stop")
 async def stop_bot(current_user: User = Depends(get_current_user)) -> Dict[str, str]:
     from app.main import bot_engine
-    await bot_engine.stop_bot()
+    try:
+        await bot_engine.stop_bot()
+    except Exception as exc:
+        logger.error("bot-stop failed: %s", exc)
+        return {"status": "error", "detail": str(exc)[:200]}
     return {"status": "stopped"}
 
 
@@ -189,14 +201,19 @@ async def get_bot_logs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BotLogResponse:
-    from app.models.bot_log import BotLog
-    result = await db.execute(
-        select(BotLog)
-        .where(BotLog.user_id == current_user.id)
-        .order_by(BotLog.created_at.desc())
-        .limit(min(limit, 200))
-    )
-    logs = result.scalars().all()
+    try:
+        from app.models.bot_log import BotLog
+        result = await db.execute(
+            select(BotLog)
+            .where(BotLog.user_id == current_user.id)
+            .order_by(BotLog.created_at.desc())
+            .limit(min(limit, 200))
+        )
+        logs = result.scalars().all()
+    except Exception as exc:
+        logger.error("bot-logs DB query failed: %s", exc)
+        return BotLogResponse(logs=[], count=0)
+
     return BotLogResponse(
         logs=[
             BotLogEntry(
