@@ -117,23 +117,28 @@ async def get_order(
 async def list_orders(
     symbol: Optional[str] = None,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """List active orders, optionally filtered by symbol."""
-    svc = _get_order_service(current_user)
-    orders = svc.get_active_orders(symbol)
+    """List orders from DB, optionally filtered by symbol."""
+    from app.models.order import Order as OrderModel
+    q = select(OrderModel).where(OrderModel.user_id == current_user.id).order_by(OrderModel.created_at.desc())
+    if symbol:
+        q = q.where(OrderModel.symbol == symbol)
+    result = await db.execute(q.limit(50))
+    db_orders = result.scalars().all()
     return {
         "orders": [
             {
-                "order_id": o.id,
+                "order_id": str(o.id),
                 "symbol": o.symbol,
-                "side": o.side,
+                "side": o.side.value,
                 "status": o.status.value,
                 "size": o.size,
                 "filled_size": o.filled_size,
             }
-            for o in orders
+            for o in db_orders
         ],
-        "count": len(orders),
+        "count": len(db_orders),
     }
 
 

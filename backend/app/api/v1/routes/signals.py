@@ -9,10 +9,15 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.auth import get_current_user
+from app.dependencies import get_db
+from app.models.bot_state import BotState
 from app.models.user import User
+from app.models.position import Position, PositionStatus
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -92,3 +97,54 @@ async def evaluate_signal(
     )
 
     return SignalEvaluateResponse(**result)
+
+
+class BotStatusResponse(BaseModel):
+    running: bool
+    regime: Optional[str] = None
+    signal_stage: Optional[str] = None
+    signal_type: Optional[str] = None
+    rsi_4h: Optional[float] = None
+    rsi_1h: Optional[float] = None
+    last_price: Optional[float] = None
+    last_eval_at: Optional[str] = None
+    open_positions: int = 0
+    last_error: Optional[str] = None
+
+
+@router.get("/bot-status", response_model=BotStatusResponse)
+async def get_bot_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BotStatusResponse:
+    """Get current bot engine status for the authenticated user."""
+    from app.main import bot_engine
+
+    result = await db.execute(
+        select(BotState).where(BotState.user_id == current_user.id)
+    )
+    state = result.scalar_one_or_none()
+
+    pos_result = await db.execute(
+        select(Position).where(
+            Position.user_id == current_user.id,
+            Position.status.in_([PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED]),
+        )
+    )
+    open_positions = len(pos_result.scalars().all())
+
+    if state is None:
+        return BotStatusResponse(running=bot_engine.running, open_positions=open_positions)
+
+    return BotStatusResponse(
+        running=bot_engine.running,
+        regime=state.last_regime,
+        signal_stage=state.signal_stage,
+        signal_type=state.signal_type,
+        rsi_4h=state.last_rsi_4h,
+        rsi_1h=state.last_rsi_1h,
+        last_price=state.last_price,
+        last_eval_at=state.last_eval_at.isoformat() if state.last_eval_at else None,
+        open_positions=open_positions,
+        last_error=state.last_error,
+    )

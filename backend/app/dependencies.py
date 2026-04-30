@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -21,6 +22,18 @@ def get_settings():
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Provide an async database session per request."""
+    async with async_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+@asynccontextmanager
+async def get_db_ctx() -> AsyncGenerator[AsyncSession, None]:
+    """Provide an async database session for background tasks."""
     async with async_session_factory() as session:
         try:
             yield session

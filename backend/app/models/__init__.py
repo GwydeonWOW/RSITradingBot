@@ -10,6 +10,7 @@ from app.models.fill import Fill
 from app.models.ledger import LedgerEntry
 from app.models.backtest import Backtest
 from app.models.user_settings import UserSettings
+from app.models.bot_state import BotState
 
 __all__ = [
     "Base",
@@ -23,4 +24,5 @@ __all__ = [
     "LedgerEntry",
     "Backtest",
     "UserSettings",
+    "BotState",
 ]

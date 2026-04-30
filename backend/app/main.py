@@ -14,8 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.v1.routes import health, strategies, signals, orders, risk, reports, ai, auth, wallets, settings as settings_routes, market
+from app.services.bot_engine import BotEngine
 
 logger = logging.getLogger(__name__)
+
+bot_engine = BotEngine()
 
 
 @asynccontextmanager
@@ -26,7 +29,9 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logger.info("Starting %s in %s mode", settings.app_name, settings.app_env)
+    await bot_engine.start()
     yield
+    await bot_engine.stop()
     logger.info("Shutting down %s", settings.app_name)
 
 
