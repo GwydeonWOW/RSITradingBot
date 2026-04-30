@@ -131,11 +131,11 @@ export interface SignalEvaluateRequest {
 }
 
 export interface SignalEvaluateResponse {
-  regime: Regime | null;
+  regime: string | null;
   rsi_4h: number | null;
   rsi_1h: number | null;
-  signal: SignalData | null;
-  sizing: PositionSizingData | null;
+  signal: { type: string; stage: string; strength?: number } | null;
+  sizing: { notional: number; contracts: number; leverage: number; risk_amount: number } | null;
 }
 
 export interface SignalData {

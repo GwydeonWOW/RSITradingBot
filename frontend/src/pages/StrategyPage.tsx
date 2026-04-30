@@ -71,7 +71,7 @@ export function StrategyPage() {
             <div>
               <span className="text-xs text-gray-500 block">Regime</span>
               <span className={`text-sm font-semibold ${result.regime === "bullish" ? "text-profit" : result.regime === "bearish" ? "text-loss" : "text-neutral-accent"}`}>
-                {result.regime?.toUpperCase() ?? "N/A"}
+                {(result.regime ?? "N/A").toUpperCase()}
               </span>
             </div>
             <div>
@@ -86,7 +86,7 @@ export function StrategyPage() {
               <span className="text-xs text-gray-500 block">Signal</span>
               <span className="text-sm font-semibold text-white">
                 {result.signal
-                  ? `${result.signal.signal_type.toUpperCase()} (${result.signal.stage})`
+                  ? `${result.signal.type.toUpperCase()} (${result.signal.stage})`
                   : "None"}
               </span>
             </div>
