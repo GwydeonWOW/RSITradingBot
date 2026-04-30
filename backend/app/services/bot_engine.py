@@ -108,7 +108,11 @@ class BotEngine:
                 await self._run_cycle(wallet.user_id, wallet, db)
             except Exception as exc:
                 logger.error("BotEngine cycle error for user %s: %s", wallet.user_id, exc)
-                await _save_error(db, wallet.user_id, str(exc)[:500])
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                await _save_error(wallet.user_id, str(exc)[:500])
 
     async def _run_cycle(
         self,
@@ -424,23 +428,25 @@ async def _log(
     signal_stage: Optional[str] = None,
     signal_type: Optional[str] = None,
 ) -> None:
-    entry = BotLog(
-        user_id=user_id,
-        level=level,
-        message=message,
-        symbol=symbol,
-        regime=regime,
-        rsi_4h=rsi_4h,
-        rsi_1h=rsi_1h,
-        price=price,
-        signal_stage=signal_stage,
-        signal_type=signal_type,
-    )
-    db.add(entry)
+    """Write a log entry using its own DB session so it survives cycle rollbacks."""
     try:
-        await db.flush()
-    except Exception:
-        pass
+        async with get_db_ctx() as log_db:
+            entry = BotLog(
+                user_id=user_id,
+                level=level,
+                message=message,
+                symbol=symbol,
+                regime=regime,
+                rsi_4h=rsi_4h,
+                rsi_1h=rsi_1h,
+                price=price,
+                signal_stage=signal_stage,
+                signal_type=signal_type,
+            )
+            log_db.add(entry)
+            await log_db.flush()
+    except Exception as exc:
+        logger.error("Failed to write bot log: %s", exc)
 
 
 async def _load_asset_indices() -> None:
@@ -587,13 +593,14 @@ async def _load_bot_state(db: AsyncSession, user_id: uuid.UUID) -> BotState:
     return state
 
 
-async def _save_error(db: AsyncSession, user_id: uuid.UUID, error: str) -> None:
+async def _save_error(user_id: uuid.UUID, error: str) -> None:
+    """Save error to bot state using its own DB session."""
     try:
-        state = await _load_bot_state(db, user_id)
-        state.last_error = error
-        state.last_eval_at = datetime.now(timezone.utc)
-        db.add(state)
-        await db.flush()
+        async with get_db_ctx() as db:
+            state = await _load_bot_state(db, user_id)
+            state.last_error = error
+            state.last_eval_at = datetime.now(timezone.utc)
+            await db.flush()
     except Exception:
         pass
 

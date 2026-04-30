@@ -12,8 +12,8 @@ export function DashboardPage() {
   const qc = useQueryClient();
   const { data: ordersData } = useActiveOrders();
   const { data: wallets } = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
-  const { data: bot } = useQuery({ queryKey: ["botStatus"], queryFn: getBotStatus, refetchInterval: 5000 });
-  const { data: logs } = useQuery({ queryKey: ["botLogs"], queryFn: getBotLogs, refetchInterval: 5000, enabled: bot?.running });
+  const { data: bot } = useQuery({ queryKey: ["botStatus"], queryFn: getBotStatus, refetchInterval: 5000, placeholderData: (prev) => prev });
+  const { data: logs } = useQuery({ queryKey: ["botLogs"], queryFn: getBotLogs, refetchInterval: 5000, enabled: bot?.running, placeholderData: (prev) => prev });
 
   const activeWallet = wallets?.[0];
   const { data: balance } = useQuery({
