@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { getMarketData, type MarketTicker } from "@/api/market";
-import { PriceWidget } from "./PriceWidget";
 
 export function MarketPanel() {
   const { data, isLoading } = useQuery({
@@ -44,28 +43,15 @@ export function MarketPanel() {
 }
 
 function TickerRow({ ticker }: { ticker: MarketTicker }) {
-  const change = ticker.prev_day_px > 0
-    ? ((ticker.mid_price - ticker.prev_day_px) / ticker.prev_day_px) * 100
-    : 0;
-  const isUp = change >= 0;
-
   return (
     <div className="bg-gray-800/50 rounded-lg p-3">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-white">{ticker.symbol}</span>
-        <span className={`text-[10px] font-mono ${isUp ? "text-profit" : "text-loss"}`}>
-          {isUp ? "+" : ""}{change.toFixed(2)}%
-        </span>
       </div>
-      <div className="flex items-end justify-between">
-        <PriceWidget
-          label=""
-          value={`$${ticker.mid_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-        />
-        <div className="text-right">
-          <div className="text-[10px] text-gray-500">Funding</div>
-          <div className="text-[10px] text-gray-400 font-mono">{(ticker.funding * 100).toFixed(4)}%</div>
-        </div>
+      <div className="mt-1">
+        <span className="text-lg font-semibold text-white font-mono">
+          ${ticker.mid_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
       </div>
     </div>
   );

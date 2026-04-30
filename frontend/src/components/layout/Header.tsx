@@ -9,9 +9,6 @@ export function Header() {
   });
 
   const btc = data?.tickers.find((t) => t.symbol === "BTC");
-  const change = btc && btc.prev_day_px > 0
-    ? ((btc.mid_price - btc.prev_day_px) / btc.prev_day_px) * 100
-    : null;
 
   return (
     <header className="sticky top-0 z-30 h-14 bg-gray-900/80 backdrop-blur-sm border-b border-gray-800 flex items-center justify-between px-6">
@@ -25,11 +22,6 @@ export function Header() {
             <span className="text-white font-mono">
               ${btc.mid_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </span>
-            {change !== null && (
-              <span className={change >= 0 ? "text-profit" : "text-loss"}>
-                {change >= 0 ? "+" : ""}{change.toFixed(2)}%
-              </span>
-            )}
           </div>
         )}
       </div>

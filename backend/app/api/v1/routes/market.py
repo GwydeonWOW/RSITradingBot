@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 import httpx
 from fastapi import APIRouter
@@ -18,11 +18,6 @@ logger = logging.getLogger(__name__)
 class MarketTicker(BaseModel):
     symbol: str
     mid_price: float
-    mark_price: float
-    prev_day_px: float
-    day_ntl_vlm: float
-    funding: float
-    open_interest: float
 
 
 class MarketResponse(BaseModel):
@@ -32,58 +27,28 @@ class MarketResponse(BaseModel):
 
 @router.get("", response_model=MarketResponse)
 async def get_market_data() -> MarketResponse:
-    """Fetch current market data from Hyperliquid for all perpetuals."""
+    """Fetch current mid prices from Hyperliquid."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # Fetch all mid prices
-            mids_resp = await client.post(
+            resp = await client.post(
                 f"{settings.hyperliquid_api_url}/info",
                 json={"type": "allMids"},
             )
-            mids_resp.raise_for_status()
-            mids = mids_resp.json()
-
-            # Fetch metadata (mark prices, volume, funding, etc.)
-            meta_resp = await client.post(
-                f"{settings.hyperliquid_api_url}/info",
-                json={"type": "meta"},
-            )
-            meta_resp.raise_for_status()
-            meta = meta_resp.json()
-
-            # Fetch funding rates
-            funding_resp = await client.post(
-                f"{settings.hyperliquid_api_url}/info",
-                json={"type": "fundingRates"},
-            )
-            funding_resp.raise_for_status()
-            funding_data = funding_resp.json()
-
-        # Build universe from metadata
-        universe = meta.get("universe", [])
-        funding_map = {f.get("coin", ""): float(f.get("fundingRate", 0)) for f in funding_data}
+            resp.raise_for_status()
+            mids = resp.json()
 
         tickers = []
-        for i, asset in enumerate(universe):
-            name = asset.get("name", "")
-            mid = float(mids.get(name, 0))
-            mark_px = float(asset.get("markPx", 0)) if asset.get("markPx") else mid
-            prev_day = float(asset.get("prevDayPx", 0)) if asset.get("prevDayPx") else 0
-            volume = float(asset.get("dayNtlVlm", 0)) if asset.get("dayNtlVlm") else 0
-            oi = float(asset.get("openInterest", 0)) if asset.get("openInterest") else 0
-
-            tickers.append(MarketTicker(
-                symbol=name,
-                mid_price=mid,
-                mark_price=mark_px if mark_px else mid,
-                prev_day_px=prev_day,
-                day_ntl_vlm=volume,
-                funding=funding_map.get(name, 0.0),
-                open_interest=oi,
-            ))
+        for symbol, price_str in mids.items():
+            if symbol.startswith("@") or symbol.endswith("/USDC"):
+                continue
+            try:
+                price = float(price_str)
+            except (ValueError, TypeError):
+                continue
+            tickers.append(MarketTicker(symbol=symbol, mid_price=price))
 
         return MarketResponse(tickers=tickers, count=len(tickers))
 
-    except httpx.HTTPError as exc:
+    except Exception as exc:
         logger.error("Failed to fetch market data from Hyperliquid: %s", exc)
         return MarketResponse(tickers=[], count=0)
