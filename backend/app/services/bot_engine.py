@@ -282,9 +282,16 @@ class BotEngine:
         else:
             stop_price = price * (1 + stop_distance_pct)
 
+        # Fetch real equity from Hyperliquid
+        query_address = wallet.master_address or wallet.agent_address
+        equity = await _fetch_equity(query_address)
+        if equity is None or equity <= 0:
+            logger.warning("Could not fetch equity for %s, skipping order", query_address)
+            return
+
         # Position sizing
         rm = RiskManager(
-            equity=10000.0,  # TODO: use real equity from balance
+            equity=equity,
             max_leverage=user_settings.max_leverage,
         )
         sizing = rm.calculate_position_size(
@@ -561,6 +568,25 @@ async def _fetch_mid_price(symbol: str) -> Optional[float]:
         return None
 
 
+async def _fetch_equity(address: str) -> Optional[float]:
+    """Fetch real account equity from Hyperliquid clearinghouse state."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "clearinghouseState", "user": address},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        margin_summary = data.get("marginSummary", {})
+        equity = float(margin_summary.get("accountValue", 0))
+        logger.info("Fetched equity for %s: $%.2f", address, equity)
+        return equity
+    except Exception as exc:
+        logger.error("Failed to fetch equity for %s: %s", address, exc)
+        return None
+
+
 async def _submit_market_order(
     wallet: Wallet,
     symbol: str,
@@ -569,6 +595,18 @@ async def _submit_market_order(
     leverage: int = 3,
 ) -> Dict[str, Any]:
     private_key = decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
+
+    # Diagnostic: verify which address the private key derives to
+    try:
+        from eth_account import Account as EthAccount
+        derived_address = EthAccount.from_key(private_key).address
+        logger.info(
+            "Wallet diagnostics — master=%s agent_db=%s key_derives_to=%s",
+            wallet.master_address, wallet.agent_address, derived_address,
+        )
+    except Exception:
+        pass
+
     signer = HyperliquidSigner(
         private_key=private_key,
         account_address=wallet.agent_address,
