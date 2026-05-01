@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Asset index cache: {"BTC": 0, "ETH": 1, ...}
 _asset_index_cache: Dict[str, int] = {}
+_sz_decimals_cache: Dict[str, int] = {}
 
 _PERSIST_FILE = Path("/tmp/bot_enabled.json")
 
@@ -299,6 +300,10 @@ class BotEngine:
 
         side = "buy" if direction == SignalType.LONG else "sell"
         size = sizing.size_contracts if sizing.size_contracts > 0 else round(sizing.size_notional / price, 6)
+        size = _round_size(symbol, size)
+        if size <= 0:
+            logger.warning("Position size rounds to 0 for %s, skipping", symbol)
+            return
 
         # Submit order to Hyperliquid
         result = await _submit_market_order(
@@ -506,6 +511,7 @@ async def _load_asset_indices() -> None:
             universe = data.get("universe", [])
             for i, asset in enumerate(universe):
                 _asset_index_cache[asset["name"]] = i
+                _sz_decimals_cache[asset["name"]] = int(asset.get("szDecimals", 0))
             logger.info("Loaded %d asset indices", len(_asset_index_cache))
     except Exception as exc:
         logger.error("Failed to load asset indices: %s", exc)
@@ -515,6 +521,11 @@ def _get_asset_index(symbol: str) -> int:
     if symbol in _asset_index_cache:
         return _asset_index_cache[symbol]
     raise ValueError(f"Unknown symbol: {symbol}")
+
+
+def _round_size(symbol: str, size: float) -> float:
+    decimals = _sz_decimals_cache.get(symbol, 0)
+    return round(size, decimals)
 
 
 async def _fetch_candles(coin: str, interval: str, hours_back: int) -> List[float]:
@@ -566,6 +577,9 @@ async def _submit_market_order(
 
     # Set leverage first
     asset_idx = _get_asset_index(symbol)
+    size = _round_size(symbol, size)
+    if size <= 0:
+        raise ValueError(f"Order size rounds to 0 for {symbol}")
     leverage_action = signer.sign_modify_leverage(symbol, leverage, is_cross=True, asset_index=asset_idx)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -587,10 +601,11 @@ async def _submit_market_order(
             f"{settings.hyperliquid_api_url}/exchange",
             json=signed.payload,
         )
-        resp.raise_for_status()
         result = resp.json()
+    logger.info("Hyperliquid order response for %s %s size=%s: %s", side, symbol, size, str(result)[:500])
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Hyperliquid {resp.status_code} for {symbol} {side} size={size}: {str(result)[:300]}")
 
-    logger.info("Hyperliquid order response: %s", str(result)[:500])
     return result
 
 
