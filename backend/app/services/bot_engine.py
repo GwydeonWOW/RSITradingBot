@@ -572,19 +572,40 @@ async def _fetch_mid_price(symbol: str) -> Optional[float]:
 
 
 async def _fetch_equity(address: str) -> Optional[float]:
-    """Fetch real account equity from Hyperliquid clearinghouse state."""
+    """Fetch real account equity from Hyperliquid.
+
+    Queries both perp clearinghouse and spot clearinghouse because unified
+    accounts hold USDC in spot (auto-used as margin) and clearinghouseState
+    returns accountValue=0 for them.
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
+            perp_resp = await client.post(
                 f"{settings.hyperliquid_api_url}/info",
                 json={"type": "clearinghouseState", "user": address},
             )
-            resp.raise_for_status()
-            data = resp.json()
-        margin_summary = data.get("marginSummary", {})
-        equity = float(margin_summary.get("accountValue", 0))
-        logger.info("Fetched equity for %s: $%.2f", address, equity)
-        return equity
+            perp_resp.raise_for_status()
+            perp_data = perp_resp.json()
+
+            spot_resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "spotClearinghouseState", "user": address},
+            )
+            spot_resp.raise_for_status()
+            spot_data = spot_resp.json()
+
+        margin_summary = perp_data.get("marginSummary", {})
+        perp_equity = float(margin_summary.get("accountValue", 0))
+
+        spot_usdc = 0.0
+        for bal in spot_data.get("balances", []):
+            if bal.get("coin") == "USDC":
+                spot_usdc += float(bal.get("total", 0))
+
+        # For unified accounts, USDC lives in spot; for legacy, in perps
+        equity = perp_equity if perp_equity > 0 else spot_usdc
+        logger.info("Fetched equity for %s: $%.2f (perp=$%.2f spot_usdc=$%.2f)", address, equity, perp_equity, spot_usdc)
+        return equity if equity > 0 else None
     except Exception as exc:
         logger.error("Failed to fetch equity for %s: %s", address, exc)
         return None
