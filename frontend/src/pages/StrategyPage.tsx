@@ -197,7 +197,18 @@ export function StrategyPage() {
 
       {/* Signal History — from bot logs */}
       <div className="bg-surface rounded-xl border border-border p-4">
-        <h2 className="text-sm font-semibold text-gray-300 mb-3">Signal History</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-300">Signal History</h2>
+          <div className="flex items-center gap-2 text-[10px] text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />Setup</span>
+            <span className="text-gray-700">→</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />Trigger</span>
+            <span className="text-gray-700">→</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />Confirmed</span>
+            <span className="text-gray-700">→</span>
+            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />Order</span>
+          </div>
+        </div>
         {signalLogs.length === 0 ? (
           <div className="text-center py-6 text-gray-600 text-xs">
             {bot?.running ? "Monitoring — signal events will appear here as they occur." : "Start the bot to generate signal history."}
