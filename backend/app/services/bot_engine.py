@@ -321,7 +321,10 @@ class BotEngine:
             leverage=user_settings.max_leverage,
         )
 
-        venue_order_id = result.get("response", {}).get("data", {}).get("statuses", [{}])[0].get("resting", {}).get("oid") if result.get("status") == "ok" else None
+        # SDK returns {status: "ok", response: {data: {statuses: [{filled: {oid, totalSz, avgPx}}]}}}
+        statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
+        status0 = statuses[0] if statuses else {}
+        venue_order_id = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
 
         # Save order to DB
         order = Order(
@@ -596,53 +599,38 @@ async def _submit_market_order(
 ) -> Dict[str, Any]:
     private_key = decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
 
-    # Diagnostic: verify which address the private key derives to
-    try:
-        from eth_account import Account as EthAccount
-        derived_address = EthAccount.from_key(private_key).address
-        logger.info(
-            "Wallet diagnostics — master=%s agent_db=%s key_derives_to=%s",
-            wallet.master_address, wallet.agent_address, derived_address,
-        )
-    except Exception:
-        pass
-
-    signer = HyperliquidSigner(
-        private_key=private_key,
-        account_address=wallet.agent_address,
-        network=settings.hyperliquid_network,
-    )
-
-    # Set leverage first
-    asset_idx = _get_asset_index(symbol)
     size = _round_size(symbol, size)
     if size <= 0:
         raise ValueError(f"Order size rounds to 0 for {symbol}")
-    leverage_action = signer.sign_modify_leverage(symbol, leverage, is_cross=True, asset_index=asset_idx)
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(
-                f"{settings.hyperliquid_api_url}/exchange",
-                json=leverage_action.payload,
-            )
-    except Exception:
-        pass  # leverage setting is idempotent, ignore errors
 
-    # Sign and submit order
-    signed = signer.sign_order(
-        symbol=symbol, side=side, size=size, price=None, order_type="Ioc",
-        asset_index=asset_idx,
+    # Use master_address as account_address so the SDK knows who the user is
+    account_addr = wallet.master_address or wallet.agent_address
+
+    signer = HyperliquidSigner(
+        private_key=private_key,
+        account_address=account_addr,
+        network=settings.hyperliquid_network,
     )
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            f"{settings.hyperliquid_api_url}/exchange",
-            json=signed.payload,
-        )
-        result = resp.json()
+    logger.info(
+        "Submitting %s %s size=%s — wallet=%s account=%s derived=%s",
+        side, symbol, size, wallet.agent_address, account_addr, signer.wallet_address,
+    )
+
+    # Set leverage (idempotent)
+    try:
+        await signer.update_leverage(symbol, leverage, is_cross=True)
+    except Exception as exc:
+        logger.warning("Leverage setting failed (non-fatal): %s", exc)
+
+    # Place market order (SDK handles slippage-adjusted price + signing)
+    is_buy = side == "buy"
+    result = await signer.market_open(symbol, is_buy, size, slippage=0.03)
+
     logger.info("Hyperliquid order response for %s %s size=%s: %s", side, symbol, size, str(result)[:500])
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Hyperliquid {resp.status_code} for {symbol} {side} size={size}: {str(result)[:300]}")
+
+    if result.get("status") == "err":
+        raise RuntimeError(f"Hyperliquid error for {symbol} {side} size={size}: {str(result)[:300]}")
 
     return result
 
