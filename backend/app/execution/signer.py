@@ -18,6 +18,14 @@ from eth_hash.auto import keccak as keccak256
 
 logger = logging.getLogger(__name__)
 
+
+def _float_to_str(value: float) -> str:
+    """Format float for Hyperliquid — strip trailing zeros per docs."""
+    if value == 0:
+        return "0"
+    s = f"{value:.10f}".rstrip("0").rstrip(".")
+    return s
+
 PHANTOM_GAS = 2_000_000
 PHANTOM_GAS_PRICE = 0
 
@@ -97,8 +105,8 @@ class HyperliquidSigner:
                 {
                     "a": asset_index,
                     "b": side == "buy",
-                    "p": str(price) if price else "0",
-                    "s": str(size),
+                    "p": _float_to_str(price) if price else "0",
+                    "s": _float_to_str(size),
                     "r": reduce_only,
                     "t": {"limit": {"tif": order_type}},
                 }
