@@ -301,8 +301,17 @@ class BotEngine:
             current_exposure=0.0,
         )
 
+        MIN_NOTIONAL = 10.0  # Hyperliquid minimum order notional in USD
+
         if sizing.size_notional <= 0:
             logger.warning("Position size is 0, skipping order")
+            return
+
+        if sizing.size_notional < MIN_NOTIONAL:
+            await _log(db, wallet.user_id, level="warning",
+                message=f"{symbol}: order notional ${sizing.size_notional:.2f} below Hyperliquid minimum ${MIN_NOTIONAL:.0f} — equity=${equity:.2f} too small for risk settings",
+                symbol=symbol, price=price)
+            logger.warning("Order notional $%.2f below minimum $%.0f for %s (equity=$%.2f)", sizing.size_notional, MIN_NOTIONAL, symbol, equity)
             return
 
         side = "buy" if direction == SignalType.LONG else "sell"
