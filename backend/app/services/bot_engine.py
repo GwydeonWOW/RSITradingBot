@@ -336,17 +336,20 @@ class BotEngine:
         statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
         status0 = statuses[0] if statuses else {}
         venue_order_id = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
+        fill_price = float(status0.get("filled", {}).get("avgPx", 0)) or price
+        fill_size = float(status0.get("filled", {}).get("totalSz", 0)) or size
 
-        # Save order to DB
+        # Save order to DB with actual fill data
         order = Order(
             user_id=wallet.user_id,
             symbol=symbol,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             order_type=OrderType.MARKET,
-            status=OrderStatus.ACCEPTED if venue_order_id else OrderStatus.INTENT,
+            status=OrderStatus.FILLED if status0.get("filled") else (OrderStatus.ACCEPTED if venue_order_id else OrderStatus.INTENT),
             venue_order_id=str(venue_order_id) if venue_order_id else None,
-            price=price,
+            price=fill_price,
             size=size,
+            filled_size=fill_size,
             leverage=user_settings.max_leverage,
             stop_loss=stop_price,
             risk_pct=sizing.risk_pct,
@@ -357,15 +360,15 @@ class BotEngine:
         )
         db.add(order)
 
-        # Save position to DB
+        # Save position to DB with actual fill price
         position = Position(
             user_id=wallet.user_id,
             order_id=order.id,
             symbol=symbol,
             side=PositionSide.LONG if direction == SignalType.LONG else PositionSide.SHORT,
             status=PositionStatus.OPEN,
-            size=size,
-            entry_price=price,
+            size=fill_size,
+            entry_price=fill_price,
             stop_loss=stop_price,
             leverage=user_settings.max_leverage,
         )
@@ -458,6 +461,7 @@ class BotEngine:
         if r_multiple >= be_r and not position.be_moved:
             position.stop_loss = entry
             position.be_moved = True
+            await _update_exchange_sl(db, wallet, position)
             await db.flush()
 
     async def _close_position(
@@ -468,18 +472,29 @@ class BotEngine:
             wallet=wallet, symbol=position.symbol, side=side, size=position.size, leverage=position.leverage,
         )
 
-        # Track close order in DB
+        # Verify the fill succeeded
         statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
         status0 = statuses[0] if statuses else {}
         venue_oid = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
+        fill_price = float(status0.get("filled", {}).get("avgPx", 0)) or current_price
+
+        if result.get("status") == "err" or (not venue_oid and not status0.get("filled")):
+            logger.error("Close order FAILED for %s: %s — position stays open", position.symbol, str(result)[:300])
+            await _log(db, wallet.user_id, level="error",
+                message=f"Close order FAILED for {position.symbol}: {str(result)[:200]}",
+                symbol=position.symbol, price=current_price)
+            await db.flush()
+            return
+
+        # Track close order in DB
         close_order = Order(
             user_id=wallet.user_id,
             symbol=position.symbol,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             order_type=OrderType.MARKET,
-            status=OrderStatus.FILLED if venue_oid else OrderStatus.INTENT,
+            status=OrderStatus.FILLED,
             venue_order_id=str(venue_oid) if venue_oid else None,
-            price=current_price,
+            price=fill_price,
             size=position.size,
             leverage=position.leverage,
         )
@@ -490,18 +505,18 @@ class BotEngine:
             await _cancel_exchange_order(wallet, position.symbol, position.venue_sl_oid)
 
         position.status = PositionStatus.CLOSED
-        position.exit_price = current_price
+        position.exit_price = fill_price
         position.closed_at = datetime.now(timezone.utc)
         if position.entry_price > 0:
             if position.side == PositionSide.LONG:
-                position.realized_pnl = (current_price - position.entry_price) * position.size
+                position.realized_pnl = (fill_price - position.entry_price) * position.size
             else:
-                position.realized_pnl = (position.entry_price - current_price) * position.size
+                position.realized_pnl = (position.entry_price - fill_price) * position.size
         await _log(db, wallet.user_id, level="exit",
-            message=f"EXIT {position.symbol} {position.side}: reason={reason} price=${current_price:.0f} pnl=${position.realized_pnl:.2f}",
-            symbol=position.symbol, price=current_price)
+            message=f"EXIT {position.symbol} {position.side}: reason={reason} price=${fill_price:.2f} pnl=${position.realized_pnl:.2f}",
+            symbol=position.symbol, price=fill_price)
         await db.flush()
-        logger.info("Closed %s position %s: reason=%s price=%.2f", position.symbol, position.id, reason, current_price)
+        logger.info("Closed %s position %s: reason=%s fill_price=%.2f", position.symbol, position.id, reason, fill_price)
 
     async def _partial_close(
         self, db: AsyncSession, wallet: Wallet, position: Position, current_price: float, close_size: float,
@@ -511,18 +526,25 @@ class BotEngine:
             wallet=wallet, symbol=position.symbol, side=side, size=close_size, leverage=position.leverage,
         )
 
-        # Track partial close order in DB
+        # Verify fill
         statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
         status0 = statuses[0] if statuses else {}
         venue_oid = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
+        fill_price = float(status0.get("filled", {}).get("avgPx", 0)) or current_price
+
+        if result.get("status") == "err" or (not venue_oid and not status0.get("filled")):
+            logger.error("Partial close FAILED for %s: %s", position.symbol, str(result)[:300])
+            return
+
+        # Track partial close order in DB
         close_order = Order(
             user_id=wallet.user_id,
             symbol=position.symbol,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             order_type=OrderType.MARKET,
-            status=OrderStatus.FILLED if venue_oid else OrderStatus.INTENT,
+            status=OrderStatus.FILLED,
             venue_order_id=str(venue_oid) if venue_oid else None,
-            price=current_price,
+            price=fill_price,
             size=close_size,
             leverage=position.leverage,
         )
@@ -530,8 +552,12 @@ class BotEngine:
 
         position.size -= close_size
         position.status = PositionStatus.PARTIALLY_CLOSED
+
+        # Update exchange SL to match remaining size
+        await _update_exchange_sl(db, wallet, position)
+
         await db.flush()
-        logger.info("Partial close %s: size=%.6f price=%.2f", position.symbol, close_size, current_price)
+        logger.info("Partial close %s: size=%.6f fill=%.2f remaining=%.6f", position.symbol, close_size, fill_price, position.size)
 
 
 # ─── Helper functions ───────────────────────────────────────────
@@ -773,6 +799,38 @@ async def _cancel_exchange_order(wallet: Wallet, symbol: str, venue_oid: str) ->
         logger.info("Cancelled exchange order %s for %s", venue_oid, symbol)
     except Exception as exc:
         logger.warning("Failed to cancel exchange order %s for %s: %s", venue_oid, symbol, exc)
+
+
+async def _update_exchange_sl(db: AsyncSession, wallet: Wallet, position: Position) -> None:
+    """Cancel old exchange SL and place a new one with updated size/price."""
+    if not position.stop_loss or position.stop_loss <= 0:
+        return
+
+    # Cancel existing exchange SL
+    if position.venue_sl_oid:
+        await _cancel_exchange_order(wallet, position.symbol, position.venue_sl_oid)
+        position.venue_sl_oid = None
+
+    # Determine SL direction: LONG position → sell SL, SHORT → buy SL
+    is_buy_sl = position.side == "short"
+    slippage = 0.05
+    worst_price = position.stop_loss * (1 - slippage) if is_buy_sl else position.stop_loss * (1 + slippage)
+
+    try:
+        new_oid = await _place_exchange_stop_loss(
+            wallet=wallet,
+            symbol=position.symbol,
+            side="sell" if position.side == "long" else "buy",
+            size=position.size,
+            stop_price=position.stop_loss,
+            price=worst_price,
+        )
+        if new_oid:
+            position.venue_sl_oid = str(new_oid)
+            logger.info("Updated exchange SL for %s: trigger=%.2f size=%.6f oid=%s",
+                position.symbol, position.stop_loss, position.size, new_oid)
+    except Exception as exc:
+        logger.warning("Failed to update exchange SL for %s: %s", position.symbol, exc)
 
 
 def _build_detector(user_settings: UserSettings) -> SignalDetector:
