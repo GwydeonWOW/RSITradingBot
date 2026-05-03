@@ -102,3 +102,35 @@ class HyperliquidSigner:
             self._exchange.order, symbol, is_buy, size, price, order_type, reduce_only
         )
         return result
+
+    async def place_stop_loss(
+        self,
+        symbol: str,
+        is_buy: bool,
+        size: float,
+        trigger_price: float,
+        worst_price: float,
+    ) -> Dict[str, Any]:
+        """Place a stop-loss trigger order on the exchange.
+
+        Args:
+            symbol: Trading pair (e.g. "SOL").
+            is_buy: True to buy on trigger (close SHORT), False to sell (close LONG).
+            size: Position size to close.
+            trigger_price: Price that activates the stop.
+            worst_price: Worst acceptable fill price (slippage limit).
+        """
+        order_type = {
+            "trigger": {
+                "triggerPx": trigger_price,
+                "isMarket": True,
+                "tpsl": "sl",
+            }
+        }
+        result = await asyncio.to_thread(
+            self._exchange.order,
+            symbol, is_buy, size, worst_price, order_type, True,
+        )
+        logger.info("SL order %s %s size=%s trigger=%.2f: %s",
+            "buy" if is_buy else "sell", symbol, size, trigger_price, str(result)[:300])
+        return result

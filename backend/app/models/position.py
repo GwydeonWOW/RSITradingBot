@@ -51,6 +51,7 @@ class Position(Base):
 
     partial_exited: Mapped[bool] = mapped_column(Boolean, default=False)
     be_moved: Mapped[bool] = mapped_column(Boolean, default=False)
+    venue_sl_oid: Mapped[str] = mapped_column(String(100), nullable=True)
 
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

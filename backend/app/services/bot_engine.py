@@ -155,8 +155,10 @@ class BotEngine:
 
         symbols = [s.strip() for s in user_settings.universe.split(",") if s.strip()]
 
-        # Check exits for all open positions across all symbols
-        await self._check_all_exits(db, wallet, user_id, user_settings)
+        # Check exits in a committed session so entries see updated positions
+        async with get_db_ctx() as exit_db:
+            await self._check_all_exits(exit_db, wallet, user_id, user_settings)
+        # exit_db commits here — closed positions are now visible to new sessions
 
         # Evaluate each symbol in the universe (each gets its own DB session)
         for symbol in symbols:
@@ -370,6 +372,19 @@ class BotEngine:
         db.add(position)
         await db.flush()
 
+        # Place stop-loss on the exchange
+        try:
+            sl_venue_oid = await _place_exchange_stop_loss(
+                wallet=wallet, symbol=symbol, side=side,
+                size=size, stop_price=stop_price, price=price,
+            )
+            if sl_venue_oid:
+                position.venue_sl_oid = str(sl_venue_oid)
+                await db.flush()
+                logger.info("Exchange SL placed for %s: trigger=%.2f oid=%s", symbol, stop_price, sl_venue_oid)
+        except Exception as exc:
+            logger.error("Failed to place exchange SL for %s: %s (internal SL still active)", symbol, exc)
+
         logger.info(
             "Placed %s %s order: size=%s price=%.2f stop=%.2f venue_oid=%s",
             side, symbol, size, price, stop_price, venue_order_id,
@@ -452,10 +467,31 @@ class BotEngine:
         result = await _submit_market_order(
             wallet=wallet, symbol=position.symbol, side=side, size=position.size, leverage=position.leverage,
         )
+
+        # Track close order in DB
+        statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
+        status0 = statuses[0] if statuses else {}
+        venue_oid = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
+        close_order = Order(
+            user_id=wallet.user_id,
+            symbol=position.symbol,
+            side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            status=OrderStatus.FILLED if venue_oid else OrderStatus.INTENT,
+            venue_order_id=str(venue_oid) if venue_oid else None,
+            price=current_price,
+            size=position.size,
+            leverage=position.leverage,
+        )
+        db.add(close_order)
+
+        # Cancel exchange stop-loss if we placed one
+        if position.venue_sl_oid:
+            await _cancel_exchange_order(wallet, position.symbol, position.venue_sl_oid)
+
         position.status = PositionStatus.CLOSED
         position.exit_price = current_price
         position.closed_at = datetime.now(timezone.utc)
-        # Calculate realized PnL before logging
         if position.entry_price > 0:
             if position.side == PositionSide.LONG:
                 position.realized_pnl = (current_price - position.entry_price) * position.size
@@ -471,9 +507,27 @@ class BotEngine:
         self, db: AsyncSession, wallet: Wallet, position: Position, current_price: float, close_size: float,
     ) -> None:
         side = "sell" if position.side == PositionSide.LONG else "buy"
-        await _submit_market_order(
+        result = await _submit_market_order(
             wallet=wallet, symbol=position.symbol, side=side, size=close_size, leverage=position.leverage,
         )
+
+        # Track partial close order in DB
+        statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
+        status0 = statuses[0] if statuses else {}
+        venue_oid = status0.get("resting", {}).get("oid") or status0.get("filled", {}).get("oid")
+        close_order = Order(
+            user_id=wallet.user_id,
+            symbol=position.symbol,
+            side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            status=OrderStatus.FILLED if venue_oid else OrderStatus.INTENT,
+            venue_order_id=str(venue_oid) if venue_oid else None,
+            price=current_price,
+            size=close_size,
+            leverage=position.leverage,
+        )
+        db.add(close_order)
+
         position.size -= close_size
         position.status = PositionStatus.PARTIALLY_CLOSED
         await db.flush()
@@ -663,6 +717,62 @@ async def _submit_market_order(
         raise RuntimeError(f"Hyperliquid error for {symbol} {side} size={size}: {str(result)[:300]}")
 
     return result
+
+
+async def _place_exchange_stop_loss(
+    wallet: Wallet,
+    symbol: str,
+    side: str,
+    size: float,
+    stop_price: float,
+    price: float,
+) -> Optional[int]:
+    """Place a real stop-loss trigger order on Hyperliquid."""
+    private_key = decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
+    account_addr = wallet.master_address or wallet.agent_address
+    signer = HyperliquidSigner(
+        private_key=private_key,
+        account_address=account_addr,
+        network=settings.hyperliquid_network,
+    )
+
+    # SL is opposite direction from entry: LONG entry → sell SL, SHORT entry → buy SL
+    is_buy_sl = side == "sell"
+    # Worst price: allow 5% slippage from trigger
+    slippage = 0.05
+    worst_price = stop_price * (1 - slippage) if is_buy_sl else stop_price * (1 + slippage)
+
+    result = await signer.place_stop_loss(
+        symbol=symbol,
+        is_buy=is_buy_sl,
+        size=size,
+        trigger_price=stop_price,
+        worst_price=worst_price,
+    )
+
+    if result.get("status") == "err":
+        logger.warning("SL order rejected for %s: %s", symbol, str(result)[:300])
+        return None
+
+    statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
+    status0 = statuses[0] if statuses else {}
+    return status0.get("resting", {}).get("oid") or status0.get("triggered", {}).get("oid")
+
+
+async def _cancel_exchange_order(wallet: Wallet, symbol: str, venue_oid: str) -> None:
+    """Cancel an order on Hyperliquid by venue OID."""
+    try:
+        private_key = decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
+        account_addr = wallet.master_address or wallet.agent_address
+        signer = HyperliquidSigner(
+            private_key=private_key,
+            account_address=account_addr,
+            network=settings.hyperliquid_network,
+        )
+        await signer.cancel(symbol, int(venue_oid))
+        logger.info("Cancelled exchange order %s for %s", venue_oid, symbol)
+    except Exception as exc:
+        logger.warning("Failed to cancel exchange order %s for %s: %s", venue_oid, symbol, exc)
 
 
 def _build_detector(user_settings: UserSettings) -> SignalDetector:
