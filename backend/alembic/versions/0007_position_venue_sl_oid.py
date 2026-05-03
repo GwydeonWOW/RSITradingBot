@@ -7,6 +7,7 @@ Revision ID: 0007_position_venue_sl_oid
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "0007_position_venue_sl_oid"
 down_revision = "0006_drop_user_id_unique_idx"
@@ -15,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("positions", op.Column("venue_sl_oid", op.String(100), nullable=True))
+    op.add_column("positions", sa.Column("venue_sl_oid", sa.String(100), nullable=True))
 
 
 def downgrade() -> None:
