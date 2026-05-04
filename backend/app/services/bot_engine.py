@@ -999,19 +999,17 @@ async def _update_exchange_sl(db: AsyncSession, wallet: Wallet, position: Positi
         await _cancel_exchange_order(wallet, position.symbol, position.venue_sl_oid)
         position.venue_sl_oid = None
 
-    # Determine SL direction: LONG position → sell SL, SHORT → buy SL
-    is_buy_sl = position.side == "short"
-    slippage = 0.05
-    worst_price = position.stop_loss * (1 + slippage) if is_buy_sl else position.stop_loss * (1 - slippage)
+    # Pass ENTRY direction — _place_exchange_stop_loss flips it internally
+    entry_side = "buy" if position.side == "long" else "sell"
 
     try:
         new_oid = await _place_exchange_stop_loss(
             wallet=wallet,
             symbol=position.symbol,
-            side="sell" if position.side == "long" else "buy",
+            side=entry_side,
             size=position.size,
             stop_price=position.stop_loss,
-            price=worst_price,
+            price=position.stop_loss,
         )
         if new_oid:
             position.venue_sl_oid = str(new_oid)
