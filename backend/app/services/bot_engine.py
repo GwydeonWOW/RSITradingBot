@@ -295,6 +295,10 @@ class BotEngine:
         rm = RiskManager(
             equity=equity,
             max_leverage=user_settings.max_leverage,
+            risk_per_trade_min=user_settings.risk_per_trade_min,
+            risk_per_trade_max=user_settings.risk_per_trade_max,
+            max_total_exposure_pct=user_settings.max_total_exposure_pct,
+            default_risk_pct=(user_settings.risk_per_trade_min + user_settings.risk_per_trade_max) / 2,
         )
         sizing = rm.calculate_position_size(
             entry_price=price,
