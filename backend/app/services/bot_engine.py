@@ -155,16 +155,45 @@ class BotEngine:
 
         symbols = [s.strip() for s in user_settings.universe.split(",") if s.strip()]
 
-        # Check exits in a committed session so entries see updated positions
-        async with get_db_ctx() as exit_db:
-            await self._check_all_exits(exit_db, wallet, user_id, user_settings)
-        # exit_db commits here — closed positions are now visible to new sessions
-
-        # Evaluate each symbol in the universe (each gets its own DB session)
+        # Per-symbol: compute market data, check exits, then evaluate entry
         for symbol in symbols:
             try:
+                # Fetch candles once per symbol, reuse for exits and entries
+                closes_4h = await _fetch_candles(symbol, "4h", 120)
+                closes_1h = await _fetch_candles(symbol, "1h", 48)
+                closes_15m = await _fetch_candles(symbol, "15m", 4)
+                price = closes_15m[-1] if closes_15m else (closes_1h[-1] if closes_1h else None)
+
+                rsi_4h = None
+                rsi_1h = None
+                regime = None
+                if closes_4h:
+                    r4 = compute_rsi(closes_4h, user_settings.rsi_period)
+                    if r4:
+                        rsi_4h = r4.rsi
+                        regime = detect_regime(rsi_4h, user_settings.rsi_regime_bullish_threshold, user_settings.rsi_regime_bearish_threshold)
+                if closes_1h:
+                    r1 = compute_rsi(closes_1h, user_settings.rsi_period)
+                    if r1:
+                        rsi_1h = r1.rsi
+
+                # Check exits for this symbol with fresh market data
+                async with get_db_ctx() as exit_db:
+                    await self._check_exit_for_symbol(
+                        exit_db, wallet, user_id, user_settings, symbol,
+                        price=price, regime=regime, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
+                    )
+
+                # Evaluate entry signal
                 async with get_db_ctx() as sym_db:
-                    await self._evaluate_symbol(sym_db, user_id, wallet, user_settings, symbol)
+                    await self._evaluate_symbol(
+                        sym_db, user_id, wallet, user_settings, symbol,
+                        closes_4h=closes_4h, closes_1h=closes_1h, closes_15m=closes_15m,
+                    )
+            except Exception as exc:
+                logger.error("BotEngine symbol error %s/%s: %s", user_id, symbol, exc)
+                await _log(db, user_id, level="error",
+                    message=f"Error on {symbol}: {str(exc)[:200]}", symbol=symbol)
             except Exception as exc:
                 logger.error("BotEngine symbol eval error %s/%s: %s", user_id, symbol, exc)
                 await _log(db, user_id, level="error",
@@ -177,6 +206,9 @@ class BotEngine:
         wallet: Wallet,
         user_settings: UserSettings,
         symbol: str,
+        closes_4h: Optional[List[float]] = None,
+        closes_1h: Optional[List[float]] = None,
+        closes_15m: Optional[List[float]] = None,
     ) -> None:
         # Load or create per-symbol state
         state = await _load_bot_state(db, user_id, symbol)
@@ -189,10 +221,13 @@ class BotEngine:
             self._detectors[key] = detector
         detector = self._detectors[key]
 
-        # Fetch candles
-        closes_4h = await _fetch_candles(symbol, "4h", 120)
-        closes_1h = await _fetch_candles(symbol, "1h", 48)
-        closes_15m = await _fetch_candles(symbol, "15m", 4)
+        # Fetch candles if not provided (fallback)
+        if closes_4h is None:
+            closes_4h = await _fetch_candles(symbol, "4h", 120)
+        if closes_1h is None:
+            closes_1h = await _fetch_candles(symbol, "1h", 48)
+        if closes_15m is None:
+            closes_15m = await _fetch_candles(symbol, "15m", 4)
 
         if not closes_4h or not closes_1h:
             logger.warning("No candle data for %s", symbol)
@@ -397,20 +432,29 @@ class BotEngine:
             side, symbol, size, price, stop_price, venue_order_id,
         )
 
-    async def _check_all_exits(
+    async def _check_exit_for_symbol(
         self,
         db: AsyncSession,
         wallet: Wallet,
         user_id: uuid.UUID,
         user_settings: UserSettings,
+        symbol: str,
+        price: Optional[float],
+        regime: Optional[Regime],
+        rsi_4h: Optional[float],
+        rsi_1h: Optional[float],
     ) -> None:
-        """Check exit conditions for all open positions."""
-        positions = await _get_all_open_positions(db, user_id)
-        for position in positions:
-            try:
-                await self._check_exit(db, wallet, user_id, user_settings, position)
-            except Exception as exc:
-                logger.error("Exit check error %s/%s: %s", user_id, position.symbol, exc)
+        """Check exit conditions for open positions on a specific symbol."""
+        position = await _get_open_position(db, user_id, symbol)
+        if position is None:
+            return
+        try:
+            await self._check_exit(
+                db, wallet, user_id, user_settings, position,
+                price=price, regime=regime, rsi_4h=rsi_4h, rsi_1h=rsi_1h,
+            )
+        except Exception as exc:
+            logger.error("Exit check error %s/%s: %s", user_id, symbol, exc)
 
     async def _check_exit(
         self,
@@ -419,9 +463,13 @@ class BotEngine:
         user_id: uuid.UUID,
         user_settings: UserSettings,
         position: Position,
+        price: Optional[float] = None,
+        regime: Optional[Regime] = None,
+        rsi_4h: Optional[float] = None,
+        rsi_1h: Optional[float] = None,
     ) -> None:
         symbol = position.symbol
-        current_price = await _fetch_mid_price(symbol)
+        current_price = price or await _fetch_mid_price(symbol)
         if not current_price:
             return
 
@@ -438,6 +486,36 @@ class BotEngine:
 
         pnl_distance = (current_price - entry) if side == "long" else (entry - current_price)
         r_multiple = pnl_distance / risk
+
+        # ── Intelligent exits (strategy: close when 4H bias deteriorates) ──
+
+        # Regime exit: thesis no longer valid
+        if regime is not None:
+            regime_against = (
+                (side == "long" and regime != Regime.BULLISH) or
+                (side == "short" and regime != Regime.BEARISH)
+            )
+            if regime_against and r_multiple > 0:
+                await _log(db, wallet.user_id, level="exit",
+                    message=f"{symbol}: regime changed to {regime.value} while {side} (R={r_multiple:.1f}) — closing",
+                    symbol=symbol, price=current_price)
+                await self._close_position(db, wallet, position, current_price, "regime_change")
+                return
+
+        # RSI extreme exit: overbought/oversold while in profit
+        if rsi_1h is not None and r_multiple > 0.5:
+            rsi_extreme = (
+                (side == "long" and rsi_1h >= 70) or
+                (side == "short" and rsi_1h <= 30)
+            )
+            if rsi_extreme:
+                await _log(db, wallet.user_id, level="exit",
+                    message=f"{symbol}: RSI1H={rsi_1h:.0f} extreme while {side} at R={r_multiple:.1f} — closing",
+                    symbol=symbol, price=current_price)
+                await self._close_position(db, wallet, position, current_price, "rsi_extreme")
+                return
+
+        # ── Mechanical exits ──
 
         # Stop loss
         stop_hit = (side == "long" and current_price <= stop) or (side == "short" and current_price >= stop)
