@@ -155,6 +155,13 @@ class BotEngine:
 
         symbols = [s.strip() for s in user_settings.universe.split(",") if s.strip()]
 
+            # Sync: detect positions closed externally on DEX
+        try:
+            async with get_db_ctx() as sync_db:
+                await self._sync_venue_positions(sync_db, wallet, user_id)
+        except Exception as exc:
+            logger.error("DEX sync error for %s: %s", user_id, exc)
+
         # Per-symbol: compute market data, check exits, then evaluate entry
         for symbol in symbols:
             try:
@@ -194,10 +201,59 @@ class BotEngine:
                 logger.error("BotEngine symbol error %s/%s: %s", user_id, symbol, exc)
                 await _log(db, user_id, level="error",
                     message=f"Error on {symbol}: {str(exc)[:200]}", symbol=symbol)
-            except Exception as exc:
-                logger.error("BotEngine symbol eval error %s/%s: %s", user_id, symbol, exc)
-                await _log(db, user_id, level="error",
-                    message=f"Error evaluating {symbol}: {str(exc)[:200]}", symbol=symbol)
+
+    async def _sync_venue_positions(
+        self,
+        db: AsyncSession,
+        wallet: Wallet,
+        user_id: uuid.UUID,
+    ) -> None:
+        """Detect positions closed externally on the DEX and update DB."""
+        query_address = wallet.master_address or wallet.agent_address
+        venue_positions = await _fetch_venue_positions(query_address)
+        if venue_positions is None:
+            return
+
+        db_positions = await _get_all_open_positions(db, user_id)
+        if not db_positions:
+            return
+
+        for pos in db_positions:
+            venue = venue_positions.get(pos.symbol)
+            if venue is not None:
+                # Position still exists on venue — sync size and price
+                pos.current_price = await _fetch_mid_price(pos.symbol)
+                venue_size = venue.get("size", 0)
+                if venue_size > 0 and abs(venue_size - pos.size) > 0.0001:
+                    logger.info("DEX sync: %s size changed %.6f → %.6f (external partial close)",
+                        pos.symbol, pos.size, venue_size)
+                    if venue_size < pos.size:
+                        pos.status = PositionStatus.PARTIALLY_CLOSED
+                    pos.size = venue_size
+                continue
+
+            # Position gone from venue — closed externally
+            exit_price = await _fetch_mid_price(pos.symbol) or pos.entry_price
+            pos.status = PositionStatus.CLOSED
+            pos.exit_price = exit_price
+            pos.closed_at = datetime.now(timezone.utc)
+            if pos.entry_price > 0:
+                if pos.side == PositionSide.LONG:
+                    pos.realized_pnl = (exit_price - pos.entry_price) * pos.size
+                else:
+                    pos.realized_pnl = (pos.entry_price - exit_price) * pos.size
+
+            # Cancel any orphaned exchange SL
+            if pos.venue_sl_oid:
+                await _cancel_exchange_order(wallet, pos.symbol, pos.venue_sl_oid)
+                pos.venue_sl_oid = None
+
+            await _log(db, user_id, level="exit",
+                message=f"{pos.symbol}: detected external close on DEX at ${exit_price:.2f}, PnL=${pos.realized_pnl:.2f}",
+                symbol=pos.symbol, price=exit_price)
+            logger.info("DEX sync: closed %s for user %s (external close) pnl=%.2f", pos.symbol, user_id, pos.realized_pnl)
+
+        await db.flush()
 
     async def _evaluate_symbol(
         self,
@@ -748,6 +804,33 @@ async def _fetch_mid_price(symbol: str) -> Optional[float]:
             return float(price_str) if price_str else None
     except Exception as exc:
         logger.error("Failed to fetch mid price for %s: %s", symbol, exc)
+        return None
+
+
+async def _fetch_venue_positions(address: str) -> Optional[Dict[str, Dict]]:
+    """Fetch open positions from Hyperliquid clearinghouseState."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.hyperliquid_api_url}/info",
+                json={"type": "clearinghouseState", "user": address},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            asset_positions = data.get("assetPositions", [])
+            result = {}
+            for ap in asset_positions:
+                pos = ap.get("position", {})
+                coin = pos.get("coin", "")
+                szi = float(pos.get("szi", 0))
+                if coin and abs(szi) > 0:
+                    result[coin] = {
+                        "size": abs(szi),
+                        "entry_price": float(pos.get("entryPx", 0)),
+                    }
+            return result
+    except Exception as exc:
+        logger.error("Failed to fetch venue positions for %s: %s", address, exc)
         return None
 
 
