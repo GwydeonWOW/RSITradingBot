@@ -938,9 +938,9 @@ async def _place_exchange_stop_loss(
 
     # SL is opposite direction from entry: LONG entry → sell SL, SHORT entry → buy SL
     is_buy_sl = side == "sell"
-    # Worst price: allow 5% slippage from trigger
+    # BUY SL → limit above trigger (pay up to), SELL SL → limit below trigger (accept less)
     slippage = 0.05
-    worst_price = stop_price * (1 - slippage) if is_buy_sl else stop_price * (1 + slippage)
+    worst_price = stop_price * (1 + slippage) if is_buy_sl else stop_price * (1 - slippage)
 
     result = await signer.place_stop_loss(
         symbol=symbol,
@@ -988,7 +988,7 @@ async def _update_exchange_sl(db: AsyncSession, wallet: Wallet, position: Positi
     # Determine SL direction: LONG position → sell SL, SHORT → buy SL
     is_buy_sl = position.side == "short"
     slippage = 0.05
-    worst_price = position.stop_loss * (1 - slippage) if is_buy_sl else position.stop_loss * (1 + slippage)
+    worst_price = position.stop_loss * (1 + slippage) if is_buy_sl else position.stop_loss * (1 - slippage)
 
     try:
         new_oid = await _place_exchange_stop_loss(
