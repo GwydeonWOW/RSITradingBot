@@ -414,18 +414,27 @@ class BotEngine:
         db.add(position)
         await db.flush()
 
-        # Place stop-loss on the exchange
+        # Place stop-loss on the exchange (critical — abort position if SL fails)
+        sl_placed = False
         try:
             sl_venue_oid = await _place_exchange_stop_loss(
                 wallet=wallet, symbol=symbol, side=side,
-                size=size, stop_price=stop_price, price=price,
+                size=fill_size, stop_price=stop_price, price=price,
             )
             if sl_venue_oid:
                 position.venue_sl_oid = str(sl_venue_oid)
                 await db.flush()
-                logger.info("Exchange SL placed for %s: trigger=%.2f oid=%s", symbol, stop_price, sl_venue_oid)
+                sl_placed = True
+                logger.info("Exchange SL placed for %s: trigger=%.2f size=%s oid=%s", symbol, stop_price, fill_size, sl_venue_oid)
+            else:
+                logger.error("Exchange SL returned no OID for %s", symbol)
         except Exception as exc:
-            logger.error("Failed to place exchange SL for %s: %s (internal SL still active)", symbol, exc)
+            logger.error("Failed to place exchange SL for %s: %s", symbol, exc)
+
+        if not sl_placed:
+            await _log(db, wallet.user_id, level="error",
+                message=f"CRITICAL: Exchange SL NOT placed for {symbol} {side} size={fill_size} stop={stop_price:.2f} — position is unprotected on exchange!",
+                symbol=symbol, price=price)
 
         logger.info(
             "Placed %s %s order: size=%s price=%.2f stop=%.2f venue_oid=%s",
