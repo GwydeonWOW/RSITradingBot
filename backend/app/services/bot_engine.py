@@ -243,6 +243,20 @@ class BotEngine:
                 else:
                     pos.realized_pnl = (pos.entry_price - exit_price) * pos.size
 
+            # Track the external close as an order in DB
+            close_side = OrderSide.SELL if pos.side == PositionSide.LONG else OrderSide.BUY
+            close_order = Order(
+                user_id=user_id,
+                symbol=pos.symbol,
+                side=close_side,
+                order_type=OrderType.MARKET,
+                status=OrderStatus.FILLED,
+                price=exit_price,
+                size=pos.size,
+                leverage=pos.leverage,
+            )
+            db.add(close_order)
+
             # Cancel any orphaned exchange SL
             if pos.venue_sl_oid:
                 await _cancel_exchange_order(wallet, pos.symbol, pos.venue_sl_oid)
