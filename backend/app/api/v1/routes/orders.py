@@ -136,6 +136,9 @@ async def list_orders(
                 "status": o.status,
                 "size": o.size,
                 "filled_size": o.filled_size,
+                "price": o.price,
+                "leverage": o.leverage,
+                "created_at": o.created_at.isoformat() if o.created_at else None,
             }
             for o in db_orders
         ],

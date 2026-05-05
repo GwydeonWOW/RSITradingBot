@@ -220,6 +220,9 @@ export interface OrderListItem {
   status: OrderStatus;
   size: number;
   filled_size: number;
+  price: number | null;
+  leverage: number;
+  created_at: string | null;
 }
 
 export interface OrderListResponse {

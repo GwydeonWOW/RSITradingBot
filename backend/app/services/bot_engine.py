@@ -253,6 +253,7 @@ class BotEngine:
                 status=OrderStatus.FILLED,
                 price=exit_price,
                 size=pos.size,
+                filled_size=pos.size,
                 leverage=pos.leverage,
             )
             db.add(close_order)
@@ -595,12 +596,12 @@ class BotEngine:
         # RSI reversal exit: RSI turns against position direction
         if rsi_1h is not None:
             rsi_against = (
-                (side == "long" and rsi_1h <= 30) or
-                (side == "short" and rsi_1h >= 70)
+                (side == "long" and rsi_1h <= 40) or
+                (side == "short" and rsi_1h >= 60)
             )
-            if rsi_against and r_multiple < -0.5:
+            if rsi_against and r_multiple < -0.3:
                 await _log(db, wallet.user_id, level="exit",
-                    message=f"{symbol}: RSI1H={rsi_1h:.0f} reversed against {side} at R={r_multiple:.1f} — closing",
+                    message=f"{symbol}: RSI1H={rsi_1h:.0f} turning against {side} at R={r_multiple:.1f} — closing",
                     symbol=symbol, price=current_price)
                 await self._close_position(db, wallet, position, current_price, "rsi_reversal")
                 return
@@ -615,6 +616,19 @@ class BotEngine:
                     message=f"{symbol}: RSI1H={rsi_1h:.0f} extreme while {side} at R={r_multiple:.1f} — closing",
                     symbol=symbol, price=current_price)
                 await self._close_position(db, wallet, position, current_price, "rsi_extreme")
+                return
+
+        # Momentum exit: price dropping while RSI confirms weakness
+        if rsi_4h is not None and rsi_1h is not None:
+            momentum_weak = (
+                (side == "long" and rsi_1h < 45 and rsi_4h < 55) or
+                (side == "short" and rsi_1h > 55 and rsi_4h > 45)
+            )
+            if momentum_weak and r_multiple < -0.2:
+                await _log(db, wallet.user_id, level="exit",
+                    message=f"{symbol}: momentum lost RSI1H={rsi_1h:.0f} RSI4H={rsi_4h:.0f} at R={r_multiple:.1f} — closing",
+                    symbol=symbol, price=current_price)
+                await self._close_position(db, wallet, position, current_price, "momentum_lost")
                 return
 
         # ── Mechanical exits ──

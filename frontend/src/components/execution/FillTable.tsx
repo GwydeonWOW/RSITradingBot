@@ -30,35 +30,48 @@ export function FillTable({ orders }: Props) {
       <table className="w-full text-xs">
         <thead>
           <tr className="text-gray-500 uppercase border-b border-border">
-            <th className="text-left py-2 pr-4">Symbol</th>
-            <th className="text-left py-2 pr-4">Side</th>
-            <th className="text-left py-2 pr-4">Status</th>
-            <th className="text-right py-2 pr-4">Size</th>
-            <th className="text-right py-2">Filled</th>
+            <th className="text-left py-2 pr-3">Time</th>
+            <th className="text-left py-2 pr-3">Symbol</th>
+            <th className="text-left py-2 pr-3">Side</th>
+            <th className="text-right py-2 pr-3">Price</th>
+            <th className="text-right py-2 pr-3">Size</th>
+            <th className="text-right py-2 pr-3">Value</th>
+            <th className="text-left py-2">Status</th>
           </tr>
         </thead>
         <tbody>
-          {orders.map((order) => (
-            <tr key={order.order_id} className="border-b border-border/50 hover:bg-gray-800/30">
-              <td className="py-2 pr-4 font-mono text-white">{order.symbol}</td>
-              <td className="py-2 pr-4">
-                <span className={order.side === "buy" ? "text-profit" : "text-loss"}>
-                  {order.side.toUpperCase()}
-                </span>
-              </td>
-              <td className="py-2 pr-4">
-                <span className={clsx("px-1.5 py-0.5 rounded text-[10px] font-medium", STATUS_STYLES[order.status])}>
-                  {order.status}
-                </span>
-              </td>
-              <td className="py-2 pr-4 text-right font-mono text-gray-300">
-                {order.size.toFixed(4)}
-              </td>
-              <td className="py-2 text-right font-mono text-gray-300">
-                {order.filled_size.toFixed(4)}
-              </td>
-            </tr>
-          ))}
+          {orders.map((order) => {
+            const value = (order.price ?? 0) * order.filled_size;
+            return (
+              <tr key={order.order_id} className="border-b border-border/50 hover:bg-gray-800/30">
+                <td className="py-2 pr-3 text-gray-400">
+                  {order.created_at
+                    ? new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })
+                    : "—"}
+                </td>
+                <td className="py-2 pr-3 font-mono text-white">{order.symbol}</td>
+                <td className="py-2 pr-3">
+                  <span className={order.side === "buy" ? "text-profit" : "text-loss"}>
+                    {order.side.toUpperCase()}
+                  </span>
+                </td>
+                <td className="py-2 pr-3 text-right font-mono text-white">
+                  {order.price ? `$${order.price.toFixed(2)}` : "—"}
+                </td>
+                <td className="py-2 pr-3 text-right font-mono text-gray-300">
+                  {order.filled_size > 0 ? order.filled_size : order.size}
+                </td>
+                <td className="py-2 pr-3 text-right font-mono text-gray-300">
+                  {value > 0 ? `$${value.toFixed(2)}` : "—"}
+                </td>
+                <td className="py-2">
+                  <span className={clsx("px-1.5 py-0.5 rounded text-[10px] font-medium", STATUS_STYLES[order.status])}>
+                    {order.status}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
