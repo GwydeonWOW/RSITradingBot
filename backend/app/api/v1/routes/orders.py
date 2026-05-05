@@ -16,6 +16,7 @@ from app.core.auth import get_current_user
 from app.core.crypto import decrypt_private_key
 from app.dependencies import get_db
 from app.execution.reconciler import Reconciler
+from app.models.position import Position, PositionStatus
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.services.order_service import OrderService
@@ -248,4 +249,60 @@ async def reconcile_orders(
             "local_active_orders": len(local_orders),
             "venue_open_orders": len(venue_orders),
         },
+    )
+
+
+class OpenPosition(BaseModel):
+    id: str
+    symbol: str
+    side: str
+    size: float
+    entry_price: float
+    current_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    leverage: int = 1
+    partial_exited: bool = False
+    be_moved: bool = False
+    opened_at: Optional[str] = None
+
+
+class OpenPositionsResponse(BaseModel):
+    positions: List[OpenPosition]
+    count: int
+
+
+@router.get("/positions/open", response_model=OpenPositionsResponse)
+async def get_open_positions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OpenPositionsResponse:
+    result = await db.execute(
+        select(Position).where(
+            Position.user_id == current_user.id,
+            Position.status.in_([PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED]),
+        ).order_by(Position.opened_at.desc())
+    )
+    positions = result.scalars().all()
+    return OpenPositionsResponse(
+        positions=[
+            OpenPosition(
+                id=str(p.id),
+                symbol=p.symbol,
+                side=p.side,
+                size=p.size,
+                entry_price=p.entry_price,
+                current_price=p.current_price,
+                stop_loss=p.stop_loss,
+                unrealized_pnl=p.unrealized_pnl or 0.0,
+                realized_pnl=p.realized_pnl or 0.0,
+                leverage=p.leverage,
+                partial_exited=p.partial_exited,
+                be_moved=p.be_moved,
+                opened_at=p.opened_at.isoformat() if p.opened_at else None,
+            )
+            for p in positions
+        ],
+        count=len(positions),
     )

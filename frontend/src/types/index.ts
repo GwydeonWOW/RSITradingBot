@@ -302,6 +302,27 @@ export interface ExceptionClassifyResponse {
 
 // ─── Dashboard display types (front-end only) ────────────
 
+export interface OpenPosition {
+  id: string;
+  symbol: string;
+  side: string;
+  size: number;
+  entry_price: number;
+  current_price: number | null;
+  stop_loss: number | null;
+  unrealized_pnl: number;
+  realized_pnl: number;
+  leverage: number;
+  partial_exited: boolean;
+  be_moved: boolean;
+  opened_at: string | null;
+}
+
+export interface OpenPositionsResponse {
+  positions: OpenPosition[];
+  count: number;
+}
+
 export interface MarketData {
   symbol: string;
   markPrice: number;

@@ -7,6 +7,7 @@ import { useActiveOrders } from "@/hooks/useMarketData";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getWallets, getWalletBalance } from "@/api/wallets";
 import { getBotStatus, startBot, stopBot, getBotLogs } from "@/api/signals";
+import { getOpenPositions } from "@/api/orders";
 
 export function DashboardPage() {
   const qc = useQueryClient();
@@ -14,6 +15,7 @@ export function DashboardPage() {
   const { data: wallets } = useQuery({ queryKey: ["wallets"], queryFn: getWallets });
   const { data: bot } = useQuery({ queryKey: ["botStatus"], queryFn: getBotStatus, refetchInterval: 5000, placeholderData: (prev) => prev });
   const { data: logs } = useQuery({ queryKey: ["botLogs"], queryFn: getBotLogs, refetchInterval: 5000, enabled: bot?.running, placeholderData: (prev) => prev });
+  const { data: positionsData } = useQuery({ queryKey: ["openPositions"], queryFn: getOpenPositions, refetchInterval: 5000, placeholderData: (prev) => prev });
 
   const activeWallet = wallets?.[0];
   const { data: balance } = useQuery({
@@ -40,6 +42,8 @@ export function DashboardPage() {
 
   const orders = ordersData?.orders ?? [];
   const hasWallet = (wallets?.length ?? 0) > 0;
+  const openPositions = positionsData?.positions ?? [];
+  const orderBookSymbol = openPositions[0]?.symbol ?? "BTC";
 
   return (
     <div className="space-y-6">
@@ -142,6 +146,47 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* Open Positions */}
+      {openPositions.length > 0 && (
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <h2 className="text-sm font-semibold text-gray-300 mb-3">Open Positions</h2>
+          <div className="space-y-2">
+            {openPositions.map((p) => (
+              <div key={p.id} className="grid grid-cols-2 md:grid-cols-6 gap-3 bg-gray-800/40 rounded-lg p-3 text-xs">
+                <div>
+                  <span className="text-gray-500">Symbol</span>
+                  <span className={`block font-semibold ${p.side === "long" ? "text-profit" : "text-loss"}`}>
+                    {p.symbol} {p.side.toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Size / Entry</span>
+                  <span className="block font-mono text-white">{p.size} @ ${p.entry_price.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Current</span>
+                  <span className="block font-mono text-white">{p.current_price ? `$${p.current_price.toFixed(2)}` : "—"}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Unrealized PnL</span>
+                  <span className={`block font-mono font-semibold ${p.unrealized_pnl >= 0 ? "text-profit" : "text-loss"}`}>
+                    ${p.unrealized_pnl.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Stop Loss</span>
+                  <span className="block font-mono text-white">{p.stop_loss ? `$${p.stop_loss.toFixed(2)}` : "—"}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Leverage / Held</span>
+                  <span className="block font-mono text-white">{p.leverage}x / {p.opened_at ? formatHeld(p.opened_at) : "—"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Order Book + Recent Orders */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 bg-surface rounded-xl border border-border p-4">
@@ -152,7 +197,7 @@ export function DashboardPage() {
             <FillTable orders={orders} />
           )}
         </div>
-        <div className="xl:col-span-1"><OrderBook symbol="BTC" /></div>
+        <div className="xl:col-span-1"><OrderBook symbol={orderBookSymbol} /></div>
       </div>
     </div>
   );
@@ -163,8 +208,16 @@ const LOG_COLORS: Record<string, string> = {
   signal: "text-yellow-400 bg-yellow-900/10",
   trade: "text-profit bg-green-900/10",
   exit: "text-blue-400 bg-blue-900/10",
+  tracking: "text-cyan-400 bg-cyan-900/10",
   error: "text-loss bg-red-900/10",
 };
+
+function formatHeld(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 function ComplianceRow({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
   return (
