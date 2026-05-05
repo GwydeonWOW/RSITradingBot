@@ -661,8 +661,10 @@ class BotEngine:
         await db.flush()
 
         # Log position tracking every tick
+        rsi_str = f"{rsi_1h:.0f}" if rsi_1h else "?"
+        regime_str = regime.value if regime else "?"
         await _log(db, wallet.user_id, level="tracking",
-            message=f"TRACKING {symbol} {side}: price=${current_price:.2f} entry=${entry:.2f} PnL=${position.unrealized_pnl:.2f} R={r_multiple:.1f} stop=${stop:.2f} regime={regime.value if regime else '?'} RSI1H={rsi_1h:.0f if rsi_1h else '?'} held={hours_held:.1f}h",
+            message=f"TRACKING {symbol} {side}: price=${current_price:.2f} entry=${entry:.2f} PnL=${position.unrealized_pnl:.2f} R={r_multiple:.1f} stop=${stop:.2f} regime={regime_str} RSI1H={rsi_str} held={hours_held:.1f}h",
             symbol=symbol, price=current_price)
 
     async def _close_position(
