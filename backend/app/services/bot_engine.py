@@ -486,6 +486,7 @@ class BotEngine:
 
         # Place stop-loss on the exchange (critical — abort position if SL fails)
         sl_placed = False
+        sl_error = ""
         try:
             sl_venue_oid = await _place_exchange_stop_loss(
                 wallet=wallet, symbol=symbol, side=side,
@@ -497,13 +498,15 @@ class BotEngine:
                 sl_placed = True
                 logger.info("Exchange SL placed for %s: trigger=%.2f size=%s oid=%s", symbol, stop_price, fill_size, sl_venue_oid)
             else:
+                sl_error = "SL returned no OID (check logs for Hyperliquid response)"
                 logger.error("Exchange SL returned no OID for %s", symbol)
         except Exception as exc:
+            sl_error = str(exc)[:200]
             logger.error("Failed to place exchange SL for %s: %s", symbol, exc)
 
         if not sl_placed:
             await _log(db, wallet.user_id, level="error",
-                message=f"CRITICAL: Exchange SL NOT placed for {symbol} {side} size={fill_size} stop={stop_price:.2f} — position is unprotected on exchange!",
+                message=f"CRITICAL: Exchange SL NOT placed for {symbol} {side} size={fill_size} stop={stop_price:.2f} — {sl_error}",
                 symbol=symbol, price=price)
 
         logger.info(
@@ -964,13 +967,23 @@ async def _place_exchange_stop_loss(
         worst_price=worst_price,
     )
 
+    logger.info("SL response for %s: %s", symbol, str(result)[:500])
+
     if result.get("status") == "err":
-        logger.warning("SL order rejected for %s: %s", symbol, str(result)[:300])
+        logger.warning("SL order rejected for %s: %s", symbol, str(result)[:500])
         return None
 
     statuses = result.get("response", {}).get("data", {}).get("statuses", [{}])
     status0 = statuses[0] if statuses else {}
-    return status0.get("resting", {}).get("oid") or status0.get("triggered", {}).get("oid")
+
+    if "error" in status0:
+        logger.warning("SL order error for %s: %s", symbol, status0["error"])
+        return None
+
+    oid = status0.get("resting", {}).get("oid") or status0.get("triggered", {}).get("oid")
+    if not oid:
+        logger.warning("SL order no OID for %s: statuses=%s", symbol, str(statuses)[:300])
+    return oid
 
 
 async def _cancel_exchange_order(wallet: Wallet, symbol: str, venue_oid: str) -> None:
