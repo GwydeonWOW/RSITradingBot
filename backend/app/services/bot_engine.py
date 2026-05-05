@@ -566,31 +566,51 @@ class BotEngine:
         if risk == 0:
             return
 
+        # Update position tracking fields every tick
+        position.current_price = current_price
+        if side == "long":
+            position.unrealized_pnl = (current_price - entry) * position.size
+        else:
+            position.unrealized_pnl = (entry - current_price) * position.size
+
         pnl_distance = (current_price - entry) if side == "long" else (entry - current_price)
         r_multiple = pnl_distance / risk
+        hours_held = (datetime.now(timezone.utc) - position.opened_at).total_seconds() / 3600 if position.opened_at else 0
 
-        # ── Intelligent exits (strategy: close when 4H bias deteriorates) ──
+        # ── Intelligent exits ──
 
-        # Regime exit: thesis no longer valid
+        # Regime exit: thesis no longer valid (close regardless of PnL)
         if regime is not None:
             regime_against = (
                 (side == "long" and regime != Regime.BULLISH) or
                 (side == "short" and regime != Regime.BEARISH)
             )
-            if regime_against and r_multiple > 0:
+            if regime_against:
                 await _log(db, wallet.user_id, level="exit",
-                    message=f"{symbol}: regime changed to {regime.value} while {side} (R={r_multiple:.1f}) — closing",
+                    message=f"{symbol}: regime changed to {regime.value} while {side} (R={r_multiple:.1f} PnL=${position.unrealized_pnl:.2f}) — closing",
                     symbol=symbol, price=current_price)
                 await self._close_position(db, wallet, position, current_price, "regime_change")
                 return
 
-        # RSI extreme exit: overbought/oversold while in profit
-        if rsi_1h is not None and r_multiple > 0.5:
+        # RSI reversal exit: RSI turns against position direction
+        if rsi_1h is not None:
+            rsi_against = (
+                (side == "long" and rsi_1h <= 30) or
+                (side == "short" and rsi_1h >= 70)
+            )
+            if rsi_against and r_multiple < -0.5:
+                await _log(db, wallet.user_id, level="exit",
+                    message=f"{symbol}: RSI1H={rsi_1h:.0f} reversed against {side} at R={r_multiple:.1f} — closing",
+                    symbol=symbol, price=current_price)
+                await self._close_position(db, wallet, position, current_price, "rsi_reversal")
+                return
+
+            # RSI extreme in our favor: take profit
             rsi_extreme = (
                 (side == "long" and rsi_1h >= 70) or
                 (side == "short" and rsi_1h <= 30)
             )
-            if rsi_extreme:
+            if rsi_extreme and r_multiple > 0.3:
                 await _log(db, wallet.user_id, level="exit",
                     message=f"{symbol}: RSI1H={rsi_1h:.0f} extreme while {side} at R={r_multiple:.1f} — closing",
                     symbol=symbol, price=current_price)
@@ -606,11 +626,9 @@ class BotEngine:
             return
 
         # Max hours
-        if position.opened_at:
-            hours_held = (datetime.now(timezone.utc) - position.opened_at).total_seconds() / 3600
-            if hours_held >= max_hours:
-                await self._close_position(db, wallet, position, current_price, "max_hours")
-                return
+        if hours_held >= max_hours:
+            await self._close_position(db, wallet, position, current_price, "max_hours")
+            return
 
         # Partial exit
         if r_multiple >= partial_r and not position.partial_exited:
@@ -621,12 +639,31 @@ class BotEngine:
             await db.flush()
             return
 
+        # Trailing stop: lock in profits as position moves in our favor
+        if r_multiple >= 1.0 and stop > 0:
+            new_stop = entry + risk * (r_multiple - 0.5) if side == "long" else entry - risk * (r_multiple - 0.5)
+            if (side == "long" and new_stop > stop) or (side == "short" and new_stop < stop):
+                position.stop_loss = round(new_stop, 2)
+                await _update_exchange_sl(db, wallet, position)
+                await _log(db, wallet.user_id, level="info",
+                    message=f"{symbol}: trailing stop moved to ${position.stop_loss:.2f} (R={r_multiple:.1f})",
+                    symbol=symbol, price=current_price)
+
         # Move stop to breakeven
-        if r_multiple >= be_r and not position.be_moved:
+        elif r_multiple >= be_r and not position.be_moved:
             position.stop_loss = entry
             position.be_moved = True
             await _update_exchange_sl(db, wallet, position)
-            await db.flush()
+            await _log(db, wallet.user_id, level="info",
+                message=f"{symbol}: stop moved to breakeven ${entry:.2f}",
+                symbol=symbol, price=current_price)
+
+        await db.flush()
+
+        # Log position tracking every tick
+        await _log(db, wallet.user_id, level="tracking",
+            message=f"TRACKING {symbol} {side}: price=${current_price:.2f} entry=${entry:.2f} PnL=${position.unrealized_pnl:.2f} R={r_multiple:.1f} stop=${stop:.2f} regime={regime.value if regime else '?'} RSI1H={rsi_1h:.0f if rsi_1h else '?'} held={hours_held:.1f}h",
+            symbol=symbol, price=current_price)
 
     async def _close_position(
         self, db: AsyncSession, wallet: Wallet, position: Position, current_price: float, reason: str,
