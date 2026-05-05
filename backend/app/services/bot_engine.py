@@ -653,24 +653,26 @@ class BotEngine:
             await db.flush()
             return
 
-        # Trailing stop: lock in profits as position moves in our favor
-        if r_multiple >= 1.0 and stop > 0:
-            new_stop = entry + risk * (r_multiple - 0.5) if side == "long" else entry - risk * (r_multiple - 0.5)
+        # Trailing stop: starts at R=0.3, trails at 0.3R distance
+        if r_multiple >= 0.3 and stop > 0:
+            trail_distance = risk * 0.3
+            new_stop = (entry + risk * r_multiple - trail_distance) if side == "long" else (entry - risk * r_multiple + trail_distance)
+            new_stop = round(new_stop, 2)
             if (side == "long" and new_stop > stop) or (side == "short" and new_stop < stop):
-                position.stop_loss = round(new_stop, 2)
+                position.stop_loss = new_stop
+                position.be_moved = True
                 await _update_exchange_sl(db, wallet, position)
                 await _log(db, wallet.user_id, level="info",
-                    message=f"{symbol}: trailing stop moved to ${position.stop_loss:.2f} (R={r_multiple:.1f})",
+                    message=f"{symbol}: trailing stop → ${new_stop:.2f} (R={r_multiple:.1f})",
                     symbol=symbol, price=current_price)
 
-        # Move stop to breakeven
-        elif r_multiple >= be_r and not position.be_moved:
-            position.stop_loss = entry
-            position.be_moved = True
-            await _update_exchange_sl(db, wallet, position)
-            await _log(db, wallet.user_id, level="info",
-                message=f"{symbol}: stop moved to breakeven ${entry:.2f}",
+        # Profit fade exit: price came back below entry after being profitable
+        if position.be_moved and r_multiple < 0:
+            await _log(db, wallet.user_id, level="exit",
+                message=f"{symbol}: profit faded (R={r_multiple:.1f}), closing before loss grows",
                 symbol=symbol, price=current_price)
+            await self._close_position(db, wallet, position, current_price, "profit_fade")
+            return
 
         await db.flush()
 
